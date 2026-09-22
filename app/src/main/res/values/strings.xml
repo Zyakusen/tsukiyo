@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">月夜</string>
+    <string name="media_playback_notification_channel">音频播放</string>
+    <string name="download_notification_channel">音频下载</string>
+</resources>

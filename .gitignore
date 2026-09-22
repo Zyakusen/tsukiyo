@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Android
+local.properties
+app/release.keystore
+captures/
+dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# opencode
+.opencode/
+
+# OS
+.DS_Store
+Thumbs.db
