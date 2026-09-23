@@ -1,7 +1,7 @@
 # Retrofit / Gson
 -keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
--keep class com.zyakusen.tsukiyo.data.model.** { *; }
--keep class com.zyakusen.tsukiyo.data.api.** { *; }
+-keep class io.github.zyakusen.tsukiyo.data.model.** { *; }
+-keep class io.github.zyakusen.tsukiyo.data.api.** { *; }
 
 # OkHttp
 -dontwarn okhttp3.**

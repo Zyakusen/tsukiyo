@@ -6,15 +6,15 @@ plugins {
 }
 
 android {
-    namespace = "com.zyakusen.tsukiyo"
+    namespace = "io.github.zyakusen.tsukiyo"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.zyakusen.tsukiyo"
+        applicationId = "io.github.zyakusen.tsukiyo"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
