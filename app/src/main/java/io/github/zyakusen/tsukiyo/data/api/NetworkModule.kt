@@ -2,6 +2,8 @@ package io.github.zyakusen.tsukiyo.data.api
 
 import io.github.zyakusen.tsukiyo.data.AuthManager
 import io.github.zyakusen.tsukiyo.data.SettingsState
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import okhttp3.Cache
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -74,7 +76,7 @@ object NetworkModule {
         val retrofit = Retrofit.Builder()
             .baseUrl(ensureTrailingSlash(baseUrl))
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create(buildGson()))
             .build()
 
         authenticatedClient = client
@@ -86,6 +88,11 @@ object NetworkModule {
     fun rebuildDownloadClient(settings: SettingsState?) {
         downloadClient = buildOkHttp(settings)
     }
+
+    private fun buildGson(): Gson =
+        GsonBuilder()
+            .registerTypeAdapter(List::class.java, FlexibleListDeserializer())
+            .create()
 
     private fun baseOkHttpBuilder(settings: SettingsState?): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()

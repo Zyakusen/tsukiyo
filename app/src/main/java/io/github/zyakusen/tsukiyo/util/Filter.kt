@@ -27,5 +27,6 @@ data class SearchFilter(
 
 /** 供其它页面（如作品详情长按标签）向搜索页传递预置筛选条件。 */
 object SearchPreset {
-    var pendingFilter: SearchFilter? = null
+    data class Pending(val filter: SearchFilter, val clearExisting: Boolean)
+    var pending: Pending? = null
 }

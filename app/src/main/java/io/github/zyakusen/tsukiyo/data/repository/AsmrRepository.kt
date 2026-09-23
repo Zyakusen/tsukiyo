@@ -84,10 +84,6 @@ class AsmrRepository(
 
     suspend fun getTracks(id: Long): List<Track> = api.getTracks(id)
 
-    suspend fun findWorkIdByWorkno(workno: String): Long? = runCatching {
-        search(workno).works?.firstOrNull { it.sourceId == workno }?.id
-    }.getOrNull()
-
     // ---------- 标签 / 社团 / 声优 ----------
 
     suspend fun getTags(): List<Tag> = api.getTags()
@@ -165,6 +161,29 @@ class AsmrRepository(
 
     suspend fun addWorksToPlaylist(playlistId: String, workIds: List<Long>) {
         api.addWorksToPlaylist(io.github.zyakusen.tsukiyo.data.model.PlaylistWorksRequest(playlistId, workIds))
+    }
+
+    /** 通过播放列表 id 导入（复制）到自己的播放列表，返回新建的播放列表。 */
+    suspend fun importPlaylist(id: String): Playlist {
+        val meta = getPlaylistMetadata(id)
+        val workIds = mutableListOf<Long>()
+        var page = 1
+        while (true) {
+            val resp = getPlaylistWorks(id, page, 100)
+            val works = resp.works ?: emptyList()
+            workIds.addAll(works.mapNotNull { it.id })
+            if (works.size < 100) break
+            page++
+        }
+        return api.createPlaylist(
+            io.github.zyakusen.tsukiyo.data.model.CreatePlaylistRequest(
+                name = meta.name ?: "导入的播放列表",
+                privacy = (meta.privacy ?: 0).coerceIn(0, 2),
+                locale = "zh-cn",
+                description = meta.description ?: "",
+                works = workIds
+            )
+        )
     }
 
     suspend fun removeWorksFromPlaylist(playlistId: String, workIds: List<Long>) {

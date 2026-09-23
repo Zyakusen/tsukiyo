@@ -187,7 +187,8 @@ fun TagChip(
     text: String,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    dimmed: Boolean = false
 ) {
     val shape = RoundedCornerShape(14.dp)
     val clickModifier = if (onClick != null || onLongClick != null) {
@@ -202,13 +203,13 @@ fun TagChip(
     }
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = if (dimmed) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.secondaryContainer,
         modifier = modifier.clip(shape).then(clickModifier)
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

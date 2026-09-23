@@ -1,6 +1,9 @@
 package io.github.zyakusen.tsukiyo.ui.screens
 
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,21 @@ fun SettingsScreen(navController: NavHostController) {
 
     var showChangePassword by remember { mutableStateOf(false) }
     var showProxy by remember { mutableStateOf(false) }
+
+    val exportDirLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                container.settingsStore.exportDirUri = uri.toString()
+                Toast.makeText(context, "已设置导出目录", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "设置失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -232,6 +250,19 @@ fun SettingsScreen(navController: NavHostController) {
                     container.settingsStore.tagLanguage = lang
                 }
             }
+        }
+
+        SectionTitle("下载")
+        Row(
+            Modifier.fillMaxWidth().clickable { exportDirLauncher.launch(null) }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (settings.exportDirUri.isBlank()) "导出目录：未设置" else "导出目录：已设置",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f)
+            )
+            Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         SectionTitle("API 镜像")

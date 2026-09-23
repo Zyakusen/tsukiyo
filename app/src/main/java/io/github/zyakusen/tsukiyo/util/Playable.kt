@@ -24,6 +24,25 @@ fun Track.extension(): String {
     return if (ext.isNotBlank() && ext.length <= 5) ext.uppercase() else ""
 }
 
+fun isAudioFile(title: String): Boolean {
+    val t = title.lowercase()
+    return t.endsWith(".wav") || t.endsWith(".mp3") || t.endsWith(".m4a") || t.endsWith(".aac") ||
+        t.endsWith(".flac") || t.endsWith(".ogg") || t.endsWith(".opus") || t.endsWith(".wma") ||
+        t.endsWith(".mp4") || t.endsWith(".webm")
+}
+
+fun isSubtitleFile(title: String): Boolean {
+    val t = title.lowercase()
+    return t.endsWith(".lrc") || t.endsWith(".vtt") || t.endsWith(".srt") ||
+        t.endsWith(".ass") || t.endsWith(".ssa") || t.endsWith(".txt")
+}
+
+fun isImageFile(title: String): Boolean {
+    val t = title.lowercase()
+    return t.endsWith(".jpg") || t.endsWith(".jpeg") || t.endsWith(".png") ||
+        t.endsWith(".webp") || t.endsWith(".gif") || t.endsWith(".bmp")
+}
+
 /** 去除媒体/字幕扩展名，得到用于匹配字幕的基础名。 */
 fun baseName(title: String): String {
     var name = title.trim()

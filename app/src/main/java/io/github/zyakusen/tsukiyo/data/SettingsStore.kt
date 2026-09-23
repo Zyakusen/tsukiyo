@@ -172,6 +172,13 @@ class SettingsStore(context: Context) {
             prefs.edit().putString("proxyPassword", value).apply()
             _state.value = _state.value.copy(proxyPassword = value)
         }
+
+    var exportDirUri: String
+        get() = prefs.getString("exportDirUri", "") ?: ""
+        set(value) {
+            prefs.edit().putString("exportDirUri", value).apply()
+            _state.value = _state.value.copy(exportDirUri = value)
+        }
 }
 
 data class SettingsState(
@@ -194,7 +201,8 @@ data class SettingsState(
     val proxyServer: String = "",
     val proxyPort: Int = 0,
     val proxyUsername: String = "",
-    val proxyPassword: String = ""
+    val proxyPassword: String = "",
+    val exportDirUri: String = ""
 ) {
     companion object {
         fun load(prefs: android.content.SharedPreferences): SettingsState {
@@ -220,7 +228,8 @@ data class SettingsState(
                 proxyServer = prefs.getString("proxyServer", "") ?: "",
                 proxyPort = prefs.getInt("proxyPort", 0),
                 proxyUsername = prefs.getString("proxyUsername", "") ?: "",
-                proxyPassword = prefs.getString("proxyPassword", "") ?: ""
+                proxyPassword = prefs.getString("proxyPassword", "") ?: "",
+                exportDirUri = prefs.getString("exportDirUri", "") ?: ""
             )
         }
     }

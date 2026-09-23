@@ -51,6 +51,7 @@ data class Work(
     @SerializedName("vas") val vas: List<Va>?,
     @SerializedName("tags") val tags: List<Tag>?,
     @SerializedName("language_editions") val languageEditions: List<LanguageEdition>?,
+    @SerializedName("other_language_editions_in_db") val otherLanguageEditionsInDb: List<LanguageEditionInDb>?,
     @SerializedName("work_attributes") val workAttributes: String?,
     @SerializedName("age_category_string") val ageCategoryString: String?,
     @SerializedName("duration") val duration: Long?,
@@ -94,6 +95,16 @@ data class LanguageEdition(
     @SerializedName("edition_id") val editionId: Long?,
     @SerializedName("edition_type") val editionType: String?,
     @SerializedName("display_order") val displayOrder: Int?
+)
+
+/** 其它语言版本（已在库中、可直接跳转的作品）。 */
+data class LanguageEditionInDb(
+    @SerializedName("id") val id: Long?,
+    @SerializedName("lang") val lang: String?,
+    @SerializedName("title") val title: String?,
+    @SerializedName("source_id") val sourceId: String?,
+    @SerializedName("is_original") val isOriginal: Boolean?,
+    @SerializedName("source_type") val sourceType: String?
 )
 
 // ---------- 标签 / 社团 / 声优 ----------

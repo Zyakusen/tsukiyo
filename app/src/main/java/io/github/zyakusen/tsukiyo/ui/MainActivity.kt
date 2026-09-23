@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                         if (!granted) storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     }
                     container.ensureGuestLogin()
+                    container.syncReviewsInBackground()
                 }
 
                 CompositionLocalProvider(LocalContainer provides container) {

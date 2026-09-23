@@ -1,5 +1,8 @@
 package io.github.zyakusen.tsukiyo.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -53,6 +57,7 @@ import io.github.zyakusen.tsukiyo.ui.navigation.Routes
 import io.github.zyakusen.tsukiyo.util.PagingState
 import io.github.zyakusen.tsukiyo.util.displayPlaylistName
 import io.github.zyakusen.tsukiyo.util.isSystemPlaylist
+import io.github.zyakusen.tsukiyo.util.parsePlaylistId
 import io.github.zyakusen.tsukiyo.util.privacyLabel
 import io.github.zyakusen.tsukiyo.util.privacyOptions
 import io.github.zyakusen.tsukiyo.util.progressLabel
@@ -64,6 +69,9 @@ private fun favoriteBadge(work: Work): String? {
     val r = work.userRating?.let { "★$it" }
     return listOfNotNull(p, r).joinToString(" · ").ifBlank { null }
 }
+
+/** 收藏页「评价」分类的哨兵值（非真实 API 过滤值，客户端按 userRating 过滤）。 */
+private const val RATED_FILTER = "rated"
 
 @Composable
 fun FavoritesScreen(navController: NavHostController) {
@@ -78,15 +86,20 @@ fun FavoritesScreen(navController: NavHostController) {
         PagingState<Work> { page ->
             if (!auth.isRealUser) {
                 (emptyList<Work>()) to 0
+            } else if (filter == RATED_FILTER) {
+                val resp = container.repository.getReviews(
+                    order = "updated_at", sort = "desc", page = page, pageSize = 50, filter = null
+                )
+                val works = resp.works ?: emptyList()
+                works.forEach { w -> w.id?.let { id -> container.reviewStore.saveAll(id, w.userRating, w.reviewText, w.progress) } }
+                (works.filter { it.userRating != null }) to Int.MAX_VALUE
             } else {
                 val resp = container.repository.getReviews(
-                    order = "updated_at",
-                    sort = "desc",
-                    page = page,
-                    pageSize = 20,
-                    filter = filter
+                    order = "updated_at", sort = "desc", page = page, pageSize = 20, filter = filter
                 )
-                (resp.works ?: emptyList()) to (resp.pagination?.totalCount ?: Int.MAX_VALUE)
+                val works = resp.works ?: emptyList()
+                works.forEach { w -> w.id?.let { id -> container.reviewStore.saveAll(id, w.userRating, w.reviewText, w.progress) } }
+                works to (resp.pagination?.totalCount ?: Int.MAX_VALUE)
             }
         }
     }
@@ -108,6 +121,7 @@ fun FavoritesScreen(navController: NavHostController) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item { SelectableChip("全部", filter == null) { filter = null } }
+            item { SelectableChip("评价", filter == RATED_FILTER) { filter = RATED_FILTER } }
             items(progressOptions) { p ->
                 SelectableChip(p.label, filter == p.value) { filter = p.value }
             }
@@ -136,6 +150,7 @@ fun PlaylistsScreen(navController: NavHostController) {
     var creating by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Playlist?>(null) }
     var deleting by remember { mutableStateOf<Playlist?>(null) }
+    var importing by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -144,6 +159,14 @@ fun PlaylistsScreen(navController: NavHostController) {
             runCatching { container.repository.getPlaylists(pageSize = 100).playlists ?: emptyList() }
                 .onSuccess { playlists = it }
         }
+    }
+
+    fun copyLink(pl: Playlist) {
+        val id = pl.id ?: return
+        val url = "https://www.asmr.one/playlist?id=$id"
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("playlist", url))
+        Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(auth.isRealUser) {
@@ -158,11 +181,13 @@ fun PlaylistsScreen(navController: NavHostController) {
     Column(Modifier.fillMaxSize()) {
         TopBar(
             "播放列表",
-            onBack = { navController.popBackStack() },
             actions = {
                 IconButton(onClick = { refresh() }) {
                     Icon(Icons.Filled.Refresh, "刷新")
                 }
+                TextButton(onClick = {
+                    if (auth.isRealUser) importing = true else Toast.makeText(context, "请登录后导入", Toast.LENGTH_SHORT).show()
+                }) { Text("导入") }
                 TextButton(onClick = {
                     if (auth.isRealUser) creating = true else Toast.makeText(context, "请登录后创建", Toast.LENGTH_SHORT).show()
                 }) { Text("新建") }
@@ -191,6 +216,7 @@ fun PlaylistsScreen(navController: NavHostController) {
                         }
                         IconButton(onClick = { editing = pl }) { Icon(Icons.Filled.Edit, "编辑") }
                         if (!system) {
+                            IconButton(onClick = { copyLink(pl) }) { Icon(Icons.Filled.Link, "复制链接") }
                             IconButton(onClick = { deleting = pl }) { Icon(Icons.Filled.Delete, "删除") }
                         }
                     }
@@ -241,6 +267,64 @@ fun PlaylistsScreen(navController: NavHostController) {
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } }
         )
     }
+
+    if (importing) {
+        ImportPlaylistDialog(
+            container = container,
+            context = context,
+            onDismiss = { importing = false },
+            onDone = { importing = false; refresh() }
+        )
+    }
+}
+
+@Composable
+private fun ImportPlaylistDialog(
+    container: io.github.zyakusen.tsukiyo.data.AppContainer,
+    context: android.content.Context,
+    onDismiss: () -> Unit,
+    onDone: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var url by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导入播放列表") },
+        text = {
+            Column {
+                Text("粘贴播放列表链接（或 id）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    url, { url = it },
+                    label = { Text("https://www.asmr.one/playlist?id=…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val id = parsePlaylistId(url)
+                    if (id == null) {
+                        Toast.makeText(context, "无法识别的链接或 id", Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    scope.launch {
+                        busy = true
+                        runCatching { container.repository.importPlaylist(id) }
+                            .onSuccess { Toast.makeText(context, "已导入", Toast.LENGTH_SHORT).show(); onDone() }
+                            .onFailure { Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show() }
+                        busy = false
+                    }
+                },
+                enabled = !busy
+            ) { Text(if (busy) "导入中…" else "导入") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 @Composable

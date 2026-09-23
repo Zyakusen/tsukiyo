@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import io.github.zyakusen.tsukiyo.data.entity.DownloadItem
 import io.github.zyakusen.tsukiyo.data.model.Playlist
 import io.github.zyakusen.tsukiyo.data.model.Track
 import io.github.zyakusen.tsukiyo.data.model.Work
@@ -86,6 +87,7 @@ import io.github.zyakusen.tsukiyo.ui.components.RatingBar
 import io.github.zyakusen.tsukiyo.ui.components.TagChip
 import io.github.zyakusen.tsukiyo.ui.components.WorkCard
 import io.github.zyakusen.tsukiyo.ui.navigation.Routes
+import io.github.zyakusen.tsukiyo.ui.navigation.navigateToSearch
 import io.github.zyakusen.tsukiyo.util.FilterType
 import io.github.zyakusen.tsukiyo.util.ProgressOption
 import io.github.zyakusen.tsukiyo.util.SearchFilter
@@ -96,10 +98,13 @@ import io.github.zyakusen.tsukiyo.util.extension
 import io.github.zyakusen.tsukiyo.util.findSmartPath
 import io.github.zyakusen.tsukiyo.util.formatDuration
 import io.github.zyakusen.tsukiyo.util.formatSize
+import io.github.zyakusen.tsukiyo.util.isSubtitleFile
+import io.github.zyakusen.tsukiyo.util.isLowVoteTag
 import io.github.zyakusen.tsukiyo.util.progressOptions
 import io.github.zyakusen.tsukiyo.util.saveImageToGallery
 import io.github.zyakusen.tsukiyo.util.tagDisplayName
 import io.github.zyakusen.tsukiyo.util.toPlayable
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -114,7 +119,7 @@ private fun fileKind(title: String): FileKind {
         t.endsWith(".lrc") || t.endsWith(".vtt") || t.endsWith(".srt") || t.endsWith(".ass") || t.endsWith(".ssa") || t.endsWith(".txt") -> FileKind.TEXT
         t.endsWith(".jpg") || t.endsWith(".jpeg") || t.endsWith(".png") || t.endsWith(".webp") || t.endsWith(".gif") || t.endsWith(".bmp") -> FileKind.IMAGE
         t.endsWith(".pdf") -> FileKind.PDF
-        t.endsWith(".wav") || t.endsWith(".mp3") || t.endsWith(".m4a") || t.endsWith(".aac") || t.endsWith(".flac") || t.endsWith(".ogg") || t.endsWith(".opus") -> FileKind.AUDIO
+        t.endsWith(".wav") || t.endsWith(".mp3") || t.endsWith(".m4a") || t.endsWith(".aac") || t.endsWith(".flac") || t.endsWith(".ogg") || t.endsWith(".opus") || t.endsWith(".mp4") || t.endsWith(".webm") -> FileKind.AUDIO
         else -> FileKind.OTHER
     }
 }
@@ -160,7 +165,12 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
         error = null
         try {
             val w = container.repository.getWorkInfo(workId)
-            work = w
+            val local = container.reviewStore.get(workId)
+            work = w.copy(
+                userRating = w.userRating ?: local?.rating,
+                reviewText = w.reviewText ?: local?.reviewText,
+                progress = w.progress ?: local?.progress
+            )
             val raw = container.repository.getTracks(workId)
             rawTracks = raw
             subtitleMap = collectSubtitleMap(raw)
@@ -200,7 +210,22 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 
     fun buildQueue(): List<io.github.zyakusen.tsukiyo.player.PlayableTrack> {
         val w = work ?: return emptyList()
-        return audioTracks.map { it.toPlayable(w, subtitleMap[baseName(it.title ?: "")]) }
+        return audioTracks.map { track ->
+            val onlineSubtitle = subtitleMap[baseName(track.title ?: "")]
+            val hash = track.hash
+            val dl = hash?.let { h ->
+                downloads.firstOrNull { it.id == h && it.status == DownloadItem.STATUS_DONE && it.localPath != null }
+            }
+            if (dl != null && File(dl.localPath!!).exists()) {
+                val localSub = localSubtitleFor(track.title ?: "", downloads)
+                track.toPlayable(w, localSub ?: onlineSubtitle).copy(
+                    highUrl = Uri.fromFile(File(dl.localPath!!)).toString(),
+                    lowUrl = null
+                )
+            } else {
+                track.toPlayable(w, onlineSubtitle)
+            }
+        }
     }
 
     fun playFromIndex(index: Int) {
@@ -258,18 +283,24 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             TagChip(
                                                 text = "社团：${w.circleName}",
-                                                onClick = { w.circleId?.let { navController.navigate(Routes.circle(it)) } },
+                                                onClick = {
+                                                    SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.CIRCLE, w.circleName, w.circleName, false), true)
+                                                    navController.navigateToSearch()
+                                                },
                                                 onLongClick = { filterAction = FilterAction(FilterType.CIRCLE, w.circleName, w.circleName) }
                                             )
                                         }
                                     }
                                     if (w.vas?.isNotEmpty() == true) {
-                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
                                             w.vas!!.forEach { va ->
                                                 val name = va.name ?: return@forEach
                                                 TagChip(
                                                     text = name,
-                                                    onClick = { va.id?.let { navController.navigate(Routes.va(it)) } },
+                                                    onClick = {
+                                                        SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.VA, name, name, false), true)
+                                                        navController.navigateToSearch()
+                                                    },
                                                     onLongClick = { filterAction = FilterAction(FilterType.VA, name, name) }
                                                 )
                                             }
@@ -297,54 +328,57 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                                         val displayName = tagDisplayName(tag, settings.tagLanguage)
                                         TagChip(
                                             text = displayName,
-                                            onClick = { tag.id?.let { navController.navigate("tag/$it") } },
-                                            onLongClick = { filterAction = FilterAction(FilterType.TAG, tag.name ?: displayName, displayName) }
+                                            onClick = {
+                                                val name = tag.name ?: displayName
+                                                SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.TAG, name, displayName, false), true)
+                                                navController.navigateToSearch()
+                                            },
+                                            onLongClick = { filterAction = FilterAction(FilterType.TAG, tag.name ?: displayName, displayName) },
+                                            dimmed = isLowVoteTag(tag)
                                         )
                                     }
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { playFromIndex(0) }) {
-                                    Icon(Icons.Filled.PlayArrow, null)
+                                OutlinedButton(onClick = { if (auth.isRealUser) showAddToPlaylist = true else toast("请先登录") }) {
+                                    Icon(Icons.Filled.PlaylistAdd, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("播放全部")
+                                    Text("加入播放列表")
                                 }
                                 OutlinedButton(onClick = { if (auth.isRealUser) showProgress = true else toast("请先登录") }) {
                                     Icon(Icons.Filled.TaskAlt, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("标记进度")
                                 }
-                                OutlinedButton(onClick = { if (auth.isRealUser) showAddToPlaylist = true else toast("请先登录") }) {
-                                    Icon(Icons.Filled.PlaylistAdd, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("加入播放列表")
-                                }
                                 OutlinedButton(onClick = { if (auth.isRealUser) showRating = true else toast("请登录后评分") }) {
                                     Icon(Icons.Filled.Star, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("评分")
                                 }
+                                OutlinedButton(onClick = {
+                                    scope.launch {
+                                        val count = container.downloadManager.enqueueWork(w, rawTracks)
+                                        toast("已加入下载队列（$count 个文件）")
+                                    }
+                                }) {
+                                    Icon(Icons.Filled.Download, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("下载")
+                                }
                             }
-                            val editions = w.languageEditions.orEmpty()
-                                .filter { !it.workno.isNullOrBlank() && it.workno != w.sourceId }
-                                .distinctBy { it.workno }
+                            val editions = w.otherLanguageEditionsInDb.orEmpty()
+                                .filter { it.id != null }
+                                .mapNotNull { e -> e.id?.let { id -> (e.lang ?: e.sourceId ?: "") to id } }
                             if (editions.isNotEmpty()) {
                                 Spacer(Modifier.height(8.dp))
                                 Text("语言版本：", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(4.dp))
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    editions.forEach { le ->
-                                        val workno = le.workno!!
+                                    editions.forEach { (label, targetId) ->
                                         TagChip(
-                                            text = le.label ?: le.lang ?: workno,
-                                            onClick = {
-                                                scope.launch {
-                                                    runCatching { container.repository.findWorkIdByWorkno(workno) }
-                                                        .onSuccess { id -> if (id != null) navController.navigate(Routes.work(id)) else toast("未找到对应语言版本") }
-                                                        .onFailure { toast("未找到对应语言版本") }
-                                                }
-                                            }
+                                            text = label,
+                                            onClick = { navController.navigate(Routes.work(targetId)) }
                                         )
                                     }
                                 }
@@ -401,7 +435,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                                 }
                             },
                             onDownload = {
-                                scope.launch { container.downloadManager.enqueue(track, w); toast("已加入下载队列") }
+                                scope.launch {
+                                    container.downloadManager.enqueue(track, w, currentPath.joinToString("/") { it.title ?: "" })
+                                    toast("已加入下载队列")
+                                }
                             }
                         )
                     }
@@ -442,7 +479,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             onDismiss = { showRating = false },
             onSubmit = { rating, text ->
                 scope.launch {
-                    runCatching { container.repository.rateWork(workId, rating, text) }
+                    runCatching {
+                        container.repository.rateWork(workId, rating, text)
+                        container.reviewStore.saveRating(workId, rating, text)
+                    }
                         .onSuccess {
                             work = work?.copy(userRating = rating, reviewText = text)
                             toast("评分成功")
@@ -460,7 +500,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             onDismiss = { showProgress = false },
             onPick = { p ->
                 scope.launch {
-                    runCatching { container.repository.markProgress(workId, p.value) }
+                    runCatching {
+                        container.repository.markProgress(workId, p.value)
+                        container.reviewStore.saveProgress(workId, p.value)
+                    }
                         .onSuccess {
                             work = work?.copy(progress = p.value)
                             toast("已标记：${p.label}")
@@ -471,7 +514,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             },
             onUnmark = {
                 scope.launch {
-                    runCatching { container.repository.unmark(workId) }
+                    runCatching {
+                        container.repository.unmark(workId)
+                        container.reviewStore.saveProgress(workId, null)
+                    }
                         .onSuccess {
                             work = work?.copy(progress = null)
                             toast("已取消标记")
@@ -509,14 +555,14 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             title = action.label,
             onDismiss = { filterAction = null },
             onInclude = {
-                SearchPreset.pendingFilter = SearchFilter(action.type, action.name, action.label, false)
+                SearchPreset.pending = SearchPreset.Pending(SearchFilter(action.type, action.name, action.label, false), false)
                 filterAction = null
-                navController.navigate(Routes.SEARCH)
+                navController.navigateToSearch()
             },
             onExclude = {
-                SearchPreset.pendingFilter = SearchFilter(action.type, action.name, action.label, true)
+                SearchPreset.pending = SearchPreset.Pending(SearchFilter(action.type, action.name, action.label, true), false)
                 filterAction = null
-                navController.navigate(Routes.SEARCH)
+                navController.navigateToSearch()
             }
         )
     }
@@ -557,6 +603,16 @@ private fun collectSubtitleMap(nodes: List<Track>): Map<String, String> {
     }
     walk(nodes)
     return map
+}
+
+/** 在已下载文件中查找与音频基础名匹配的本地字幕文件。 */
+private fun localSubtitleFor(audioTitle: String, downloads: List<DownloadItem>): String? {
+    val base = baseName(audioTitle)
+    return downloads
+        .filter { it.status == DownloadItem.STATUS_DONE && it.localPath != null && isSubtitleFile(it.title) && baseName(it.title) == base }
+        .mapNotNull { it.localPath?.let(::File) }
+        .firstOrNull { it.exists() }
+        ?.let { Uri.fromFile(it).toString() }
 }
 
 private suspend fun fetchText(url: String?): String = withContext(Dispatchers.IO) {

@@ -56,12 +56,16 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun applyPendingPreset() {
-        val f = SearchPreset.pendingFilter ?: return
-        SearchPreset.pendingFilter = null
-        if (filters.none { it.raw == f.raw }) {
-            filters.add(f)
-            refresh()
+        val p = SearchPreset.pending ?: return
+        SearchPreset.pending = null
+        if (p.clearExisting) {
+            keyword = ""
+            submitted = ""
+            filters.clear()
         }
+        val idx = filters.indexOfFirst { it.type == p.filter.type && it.name == p.filter.name }
+        if (idx >= 0) filters[idx] = p.filter else filters.add(p.filter)
+        refresh()
     }
 
     fun updateKeyword(value: String) {

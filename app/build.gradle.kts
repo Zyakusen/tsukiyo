@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp)

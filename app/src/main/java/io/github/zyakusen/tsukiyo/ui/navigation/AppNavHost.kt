@@ -1,5 +1,6 @@
 package io.github.zyakusen.tsukiyo.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -99,6 +100,32 @@ private val topLevelDestinations = listOf(
 
 private val topLevelRoutes = topLevelDestinations.map { it.route }.toSet()
 
+/**
+ * 切换到顶级 Tab 的统一入口：确保每个顶级目的地只在返回栈中出现一次，
+ * 避免用裸 navigate 压入重复条目导致底部导航与返回键行为错乱。
+ */
+fun NavHostController.navigateToTopLevel(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+/**
+ * 从详情页回到搜索页（应用预置筛选）。优先弹回栈中已存在的搜索页，
+ * 否则新建一个搜索页（同时弹掉详情页）。
+ */
+fun NavHostController.navigateToSearch() {
+    if (!popBackStack(Routes.SEARCH, false)) {
+        navigate(Routes.SEARCH) {
+            popUpTo(graph.findStartDestination().id)
+        }
+    }
+}
+
 @Composable
 fun AppNavHost(navController: NavHostController = rememberNavController()) {
     val container = LocalContainer.current
@@ -110,6 +137,10 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
     val isPlayer = currentRoute == Routes.PLAYER
     val playerState by PlayerManager.uiState.collectAsState()
     val playing = playerState.currentTrack != null
+
+    BackHandler(enabled = isTopLevel && currentRoute != Routes.BROWSE) {
+        navController.navigateToTopLevel(Routes.BROWSE)
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -128,16 +159,14 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                             NavigationBarItem(
                                 selected = currentDestination?.hierarchy?.any { it.route == dest.route } == true,
                                 onClick = {
-                                    if (dest.route == Routes.BROWSE && currentRoute == Routes.BROWSE) {
-                                        container.scrollHomeToTop()
-                                    } else {
-                                        navController.navigate(dest.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                    if (dest.route == Routes.BROWSE) {
+                                        if (currentRoute == Routes.BROWSE) {
+                                            container.scrollHomeToTop()
+                                        } else if (!navController.popBackStack(Routes.BROWSE, false)) {
+                                            navController.navigate(Routes.BROWSE)
                                         }
+                                    } else {
+                                        navController.navigateToTopLevel(dest.route)
                                     }
                                 },
                                 icon = { Icon(dest.icon, contentDescription = dest.label) },

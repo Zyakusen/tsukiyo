@@ -1,6 +1,8 @@
 package io.github.zyakusen.tsukiyo.download
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -9,8 +11,11 @@ import io.github.zyakusen.tsukiyo.data.dao.DownloadDao
 import io.github.zyakusen.tsukiyo.data.entity.DownloadItem
 import io.github.zyakusen.tsukiyo.data.model.Track
 import io.github.zyakusen.tsukiyo.data.model.Work
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 /**
  * 下载管理器：负责排队下载、观察状态与删除本地文件。
@@ -31,7 +36,7 @@ class DownloadManager(
 
     suspend fun statusOf(id: String): DownloadItem? = dao.get(id)
 
-    suspend fun enqueue(track: Track, work: Work) {
+    suspend fun enqueue(track: Track, work: Work, folderPath: String = "") {
         val url = track.mediaDownloadUrl ?: track.mediaStreamUrl ?: return
         val id = track.hash ?: "${work.id ?: 0}_${track.title}"
         if (dao.exists(id)) return
@@ -51,7 +56,8 @@ class DownloadManager(
             status = DownloadItem.STATUS_QUEUED,
             progress = 0f,
             localPath = null,
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            folderPath = folderPath
         )
         dao.insert(item)
 
@@ -67,6 +73,31 @@ class DownloadManager(
 
         WorkManager.getInstance(context)
             .enqueueUniqueWork("download_$id", ExistingWorkPolicy.KEEP, request)
+    }
+
+    /** 递归下载整个作品的所有文件（音频/字幕/图片等），保留文件夹层级。 */
+    suspend fun enqueueWork(work: Work, tracks: List<Track>): Int {
+        var count = 0
+        suspend fun walk(list: List<Track>, path: List<String>) {
+            for (t in list) {
+                when (t.type) {
+                    "folder" -> t.children?.let { walk(it, path + listOf(t.title ?: "")) }
+                    else -> {
+                        enqueue(t, work, path.joinToString("/"))
+                        count++
+                    }
+                }
+            }
+        }
+        walk(tracks, emptyList())
+        return count
+    }
+
+    /** 删除某作品下所有已下载文件与记录。 */
+    suspend fun deleteWork(workId: Long) {
+        val items = dao.getByWork(workId)
+        items.forEach { it.localPath?.let { p -> runCatching { File(p).delete() } } }
+        dao.deleteByWorkId(workId)
     }
 
     suspend fun retry(item: DownloadItem) {
@@ -89,6 +120,53 @@ class DownloadManager(
         runCatching { WorkManager.getInstance(context).cancelUniqueWork("download_${item.id}") }
     }
 
+    /** 导出单个已下载文件到导出目录的「作品名」文件夹下。 */
+    suspend fun exportFile(item: DownloadItem, exportUri: String): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            val src = item.localPath?.let { File(it) } ?: throw IOException("文件不存在")
+            if (!src.exists()) throw IOException("文件不存在")
+            val root = DocumentFile.fromTreeUri(context, Uri.parse(exportUri)) ?: throw IOException("无法访问导出目录")
+            val workDir = ensureDir(root, sanitize(item.workTitle))
+            writeFile(workDir, sanitize(item.title), src)
+            1
+        }
+    }
+
+    /** 导出某作品全部已下载文件，保留文件夹层级。返回导出的文件数。 */
+    suspend fun exportWork(workId: Long, exportUri: String): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            val items = dao.getByWork(workId).filter { it.status == DownloadItem.STATUS_DONE && it.localPath != null }
+            if (items.isEmpty()) throw IOException("没有已下载的文件")
+            val root = DocumentFile.fromTreeUri(context, Uri.parse(exportUri)) ?: throw IOException("无法访问导出目录")
+            val workDir = ensureDir(root, sanitize(items.first().workTitle))
+            var count = 0
+            for (item in items) {
+                val src = File(item.localPath!!)
+                if (!src.exists()) continue
+                val targetDir = item.folderPath.split("/").filter { it.isNotBlank() }
+                    .fold(workDir) { dir, name -> ensureDir(dir, sanitize(name)) }
+                writeFile(targetDir, sanitize(item.title), src)
+                count++
+            }
+            count
+        }
+    }
+
+    private fun ensureDir(parent: DocumentFile, name: String): DocumentFile {
+        parent.findFile(name)?.let { if (it.isDirectory) return it }
+        return parent.createDirectory(name) ?: parent
+    }
+
+    private fun writeFile(dir: DocumentFile, name: String, src: File) {
+        dir.findFile(name)?.let { runCatching { it.delete() } }
+        val target = dir.createFile("application/octet-stream", name) ?: throw IOException("创建文件失败")
+        context.contentResolver.openOutputStream(target.uri)?.use { out ->
+            src.inputStream().use { it.copyTo(out) }
+        } ?: throw IOException("无法写入文件")
+    }
+
+    private fun sanitize(name: String): String = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+
     private fun buildFileName(workCode: String?, title: String?, url: String): String {
         val ext = extensionOf(url)
         val base = title?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "track"
@@ -100,7 +178,10 @@ class DownloadManager(
         val path = url.substringBefore('?').substringBefore('#')
         val last = path.substringAfterLast('.', "")
         return when (last.lowercase()) {
-            "wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma" -> last.lowercase()
+            "wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma",
+            "lrc", "vtt", "srt", "ass", "ssa", "txt",
+            "jpg", "jpeg", "png", "webp", "gif", "bmp",
+            "pdf" -> last.lowercase()
             else -> "mp3"
         }
     }

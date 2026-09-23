@@ -161,8 +161,6 @@ fun PlayerScreen(navController: NavHostController) {
             Text(
                 track.title,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
             )

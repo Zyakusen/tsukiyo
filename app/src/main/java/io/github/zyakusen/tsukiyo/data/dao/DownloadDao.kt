@@ -18,6 +18,12 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE workId = :workId ORDER BY createdAt DESC")
     fun observeByWork(workId: Long): Flow<List<DownloadItem>>
 
+    @Query("SELECT * FROM downloads WHERE workId = :workId")
+    suspend fun getByWork(workId: Long): List<DownloadItem>
+
+    @Query("DELETE FROM downloads WHERE workId = :workId")
+    suspend fun deleteByWorkId(workId: Long)
+
     @Query("SELECT * FROM downloads WHERE id = :id")
     suspend fun get(id: String): DownloadItem?
 

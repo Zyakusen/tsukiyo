@@ -29,6 +29,7 @@ class AppContainer(context: Context) {
 
     val repository: AsmrRepository
     val downloadManager: DownloadManager
+    val reviewStore: ReviewStore
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -45,6 +46,7 @@ class AppContainer(context: Context) {
         applyNetworkConfig()
         repository = AsmrRepository({ api }, authManager, settingsStore)
         downloadManager = DownloadManager(context, database.downloadDao())
+        reviewStore = ReviewStore(database.reviewDao())
     }
 
     private fun applyNetworkConfig() {
@@ -105,5 +107,23 @@ class AppContainer(context: Context) {
     suspend fun ensureGuestLogin(): Boolean {
         if (authManager.token != null) return true
         return repository.guestLogin()
+    }
+
+    /** 启动时后台同步收藏页数据（评分/评论/进度）到本地缓存，最多拉取最近几页。 */
+    fun syncReviewsInBackground() {
+        if (!authManager.isRealUser) return
+        scope.launch {
+            runCatching {
+                var page = 1
+                val pageSize = 50
+                while (page <= 5) {
+                    val resp = repository.getReviews(order = "updated_at", sort = "desc", page = page, pageSize = pageSize)
+                    val works = resp.works ?: emptyList()
+                    works.forEach { w -> w.id?.let { id -> reviewStore.saveAll(id, w.userRating, w.reviewText, w.progress) } }
+                    if (works.size < pageSize) break
+                    page++
+                }
+            }
+        }
     }
 }

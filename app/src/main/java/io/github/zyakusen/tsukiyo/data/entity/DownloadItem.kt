@@ -18,7 +18,8 @@ data class DownloadItem(
     val status: Int, // 0 排队 1 下载中 2 完成 3 失败
     val progress: Float,
     val localPath: String?,
-    val createdAt: Long
+    val createdAt: Long,
+    val folderPath: String = ""
 ) {
     companion object {
         const val STATUS_QUEUED = 0
