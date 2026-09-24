@@ -1,6 +1,7 @@
 package io.github.zyakusen.tsukiyo.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,12 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -38,9 +41,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import io.github.zyakusen.tsukiyo.data.SettingsStore
+import io.github.zyakusen.tsukiyo.data.api.NetworkModule
 import io.github.zyakusen.tsukiyo.ui.LocalContainer
 import io.github.zyakusen.tsukiyo.ui.components.TopBar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import org.json.JSONObject
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
@@ -52,6 +60,8 @@ fun SettingsScreen(navController: NavHostController) {
 
     var showChangePassword by remember { mutableStateOf(false) }
     var showProxy by remember { mutableStateOf(false) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val exportDirLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -64,6 +74,40 @@ fun SettingsScreen(navController: NavHostController) {
                 Toast.makeText(context, "已设置导出目录", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Toast.makeText(context, "设置失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val currentVersion = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1.0.0"
+    }
+
+    fun checkUpdate() {
+        scope.launch {
+            checkingUpdate = true
+            val info = withContext(Dispatchers.IO) {
+                runCatching {
+                    val req = Request.Builder()
+                        .url("https://api.github.com/repos/Zyakusen/tsukiyo/releases/latest")
+                        .header("User-Agent", "tsukiyo")
+                        .build()
+                    NetworkModule.downloadClient.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) null else {
+                            val json = JSONObject(resp.body?.string() ?: "")
+                            val tag = json.optString("tag_name").removePrefix("v")
+                            val html = json.optString("html_url")
+                            if (tag.isBlank() || html.isBlank()) null else (tag to html)
+                        }
+                    }
+                }.getOrNull()
+            }
+            checkingUpdate = false
+            if (info == null) {
+                Toast.makeText(context, "检查更新失败", Toast.LENGTH_SHORT).show()
+            } else if (compareVersions(info.first, currentVersion) > 0) {
+                updateInfo = info
+            } else {
+                Toast.makeText(context, "已是最新版", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -258,7 +302,7 @@ fun SettingsScreen(navController: NavHostController) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (settings.exportDirUri.isBlank()) "导出目录：未设置" else "导出目录：已设置",
+                if (settings.exportDirUri.isBlank()) "导出目录：未设置" else "导出目录：${exportDirDisplayName(settings.exportDirUri)}",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
             )
@@ -299,9 +343,22 @@ fun SettingsScreen(navController: NavHostController) {
             }) { Text("清理") }
         }
 
+        SectionTitle("检查更新")
+        Row(
+            Modifier.fillMaxWidth().clickable(enabled = !checkingUpdate) { checkUpdate() }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("检查更新", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            if (checkingUpdate) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
         SectionTitle("关于")
         Text(
-            "Tsukiyo（月夜）v1.0.0\n数据来源：asmr.one\n仅供个人学习交流使用。",
+            "Tsukiyo（月夜）v$currentVersion\n数据来源：asmr.one\n仅供个人学习交流使用。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -326,6 +383,21 @@ fun SettingsScreen(navController: NavHostController) {
         ProxyDialog(
             container = container,
             onDismiss = { showProxy = false }
+        )
+    }
+
+    updateInfo?.let { (latest, html) ->
+        AlertDialog(
+            onDismissRequest = { updateInfo = null },
+            title = { Text("发现新版本") },
+            text = { Text("最新版本：v$latest\n是否前往 GitHub 下载？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    updateInfo = null
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(html))) }
+                }) { Text("下载") }
+            },
+            dismissButton = { TextButton(onClick = { updateInfo = null }) { Text("取消") } }
         )
     }
 }
@@ -421,4 +493,24 @@ private fun SettingRow(label: String, content: @Composable () -> Unit) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         content()
     }
+}
+
+/** 按「主.次.修订」逐段数值比较，a > b 返回正数、相等返回 0、小于返回负数。 */
+private fun compareVersions(a: String, b: String): Int {
+    val pa = a.split('.').mapNotNull { it.toIntOrNull() }
+    val pb = b.split('.').mapNotNull { it.toIntOrNull() }
+    for (i in 0 until maxOf(pa.size, pb.size)) {
+        val x = pa.getOrElse(i) { 0 }
+        val y = pb.getOrElse(i) { 0 }
+        if (x != y) return x.compareTo(y)
+    }
+    return 0
+}
+
+/** 从 SAF 目录 URI 解析出可读的路径显示（如 primary:Download/ASMR → Download/ASMR）。 */
+private fun exportDirDisplayName(uri: String): String {
+    val docId = uri.substringAfterLast('/')
+    val decoded = Uri.decode(docId)
+    val name = decoded.substringAfterLast(':')
+    return if (name.isBlank()) "已设置" else name
 }

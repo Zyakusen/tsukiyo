@@ -31,6 +31,11 @@ fun isAudioFile(title: String): Boolean {
         t.endsWith(".mp4") || t.endsWith(".webm")
 }
 
+fun isVideoFile(title: String): Boolean {
+    val t = title.lowercase()
+    return t.endsWith(".mp4") || t.endsWith(".webm")
+}
+
 fun isSubtitleFile(title: String): Boolean {
     val t = title.lowercase()
     return t.endsWith(".lrc") || t.endsWith(".vtt") || t.endsWith(".srt") ||
@@ -64,10 +69,10 @@ fun baseName(title: String): String {
     return name.trim()
 }
 
-/** 解析 .lrc 字幕文本 */
+/** 解析 .lrc 字幕文本（支持 [mm:ss.cc] 与 [hh:mm:ss.cc] 两种时间戳）。 */
 fun parseLrc(content: String): List<LrcLine> {
     val lines = mutableListOf<LrcLine>()
-    val timeTag = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?]""")
+    val timeTag = Regex("""\[(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?(?:[.:](\d{1,3}))?]""")
     for (raw in content.lineSequence()) {
         val line = raw.trim()
         if (line.isEmpty()) continue
@@ -75,12 +80,17 @@ fun parseLrc(content: String): List<LrcLine> {
         if (matches.isEmpty()) continue
         val text = line.substring(line.lastIndexOf(']') + 1).trim()
         for (m in matches) {
-            val min = m.groupValues[1].toLongOrNull() ?: 0L
-            val sec = m.groupValues[2].toLongOrNull() ?: 0L
-            val frac = m.groupValues[3].let { s ->
+            val g1 = m.groupValues[1].toLongOrNull() ?: 0L
+            val g2 = m.groupValues[2].toLongOrNull() ?: 0L
+            val g3 = m.groupValues[3].takeIf { it.isNotEmpty() }?.toLongOrNull()
+            val frac = m.groupValues[4].let { s ->
                 if (s.isEmpty()) 0L else (s.padEnd(3, '0').take(3).toLongOrNull() ?: 0L)
             }
-            val timeMs = min * 60_000 + sec * 1000 + frac
+            val timeMs = if (g3 != null) {
+                g1 * 3_600_000 + g2 * 60_000 + g3 * 1000 + frac
+            } else {
+                g1 * 60_000 + g2 * 1000 + frac
+            }
             lines.add(LrcLine(timeMs, text))
         }
     }
@@ -117,6 +127,50 @@ fun parseVtt(content: String): List<LrcLine> {
 fun parseSubtitle(content: String): List<LrcLine> {
     val trimmed = content.trimStart()
     return if (trimmed.startsWith("WEBVTT") || trimmed.contains("-->")) parseVtt(content) else parseLrc(content)
+}
+
+/** 将 WebVTT 文本转换为 LRC 文本（时间戳换算为 [mm:ss.xx]，多行文本合并为一行）。 */
+fun vttToLrc(content: String): String {
+    val timeTag = Regex("""(\d{2}):(\d{2}):(\d{2})[.](\d{3})\s*-->""")
+    val out = StringBuilder()
+    var cueStart: Long? = null
+    val cueText = StringBuilder()
+
+    fun flush() {
+        val start = cueStart ?: return
+        if (cueText.isNotBlank()) {
+            val cs = start / 10
+            val min = cs / 6000
+            val sec = (cs % 6000) / 100
+            val c = cs % 100
+            val text = cueText.toString().trim().replace(Regex("\\s*\n\\s*"), " ")
+            out.append("[%02d:%02d.%02d]%s\n".format(min, sec, c, text))
+        }
+        cueStart = null
+        cueText.clear()
+    }
+
+    for (raw in content.lineSequence()) {
+        val line = raw.trim()
+        val m = timeTag.find(line)
+        when {
+            m != null -> {
+                flush()
+                cueStart = m.groupValues[1].toLongOrNull()?.times(3_600_000)
+                    ?.plus((m.groupValues[2].toLongOrNull() ?: 0L) * 60_000)
+                    ?.plus((m.groupValues[3].toLongOrNull() ?: 0L) * 1000)
+                    ?.plus(m.groupValues[4].toLongOrNull() ?: 0L)
+            }
+            line.isEmpty() -> flush()
+            cueStart != null && !line.startsWith("WEBVTT") && !line.startsWith("NOTE") &&
+                !line.startsWith("STYLE") && !line.startsWith("Kind:") && !line.startsWith("Language:") -> {
+                if (cueText.isNotEmpty()) cueText.append('\n')
+                cueText.append(line)
+            }
+        }
+    }
+    flush()
+    return out.toString().trimEnd()
 }
 
 /** 根据播放位置查找当前字幕行索引 */

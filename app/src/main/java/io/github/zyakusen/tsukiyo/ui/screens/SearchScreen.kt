@@ -57,6 +57,7 @@ import io.github.zyakusen.tsukiyo.util.FilterType
 import io.github.zyakusen.tsukiyo.util.PagingState
 import io.github.zyakusen.tsukiyo.util.SearchFilter
 import io.github.zyakusen.tsukiyo.util.SearchPreset
+import io.github.zyakusen.tsukiyo.util.tagDisplayName
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,13 +226,15 @@ private fun FilterPickerDialog(
     var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
     var vas by remember { mutableStateOf<List<Va>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableStateOf(0) }
+    val tagLanguage = container.settingsStore.tagLanguage
 
-    LaunchedEffect(type) {
+    LaunchedEffect(type, refreshKey) {
         loaded = false
         when (type) {
-            FilterType.TAG -> tags = container.repository.getTags()
-            FilterType.CIRCLE -> circles = container.repository.getCircles()
-            FilterType.VA -> vas = container.repository.getVas()
+            FilterType.TAG -> tags = container.repository.getTags(force = refreshKey > 0)
+            FilterType.CIRCLE -> circles = container.repository.getCircles(force = refreshKey > 0)
+            FilterType.VA -> vas = container.repository.getVas(force = refreshKey > 0)
             else -> {}
         }
         loaded = true
@@ -247,19 +250,27 @@ private fun FilterPickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                when (type) {
-                    FilterType.TAG -> "选择标签"
-                    FilterType.CIRCLE -> "选择社团"
-                    FilterType.VA -> "选择声优"
-                    FilterType.DURATION -> "选择时长"
-                    FilterType.RATE -> "选择最低评分"
-                    FilterType.PRICE -> "选择价格"
-                    FilterType.SELL -> "选择销量"
-                    FilterType.AGE -> "选择年龄分级"
-                    FilterType.LANG -> "选择语言"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    when (type) {
+                        FilterType.TAG -> "选择标签"
+                        FilterType.CIRCLE -> "选择社团"
+                        FilterType.VA -> "选择声优"
+                        FilterType.DURATION -> "选择时长"
+                        FilterType.RATE -> "选择最低评分"
+                        FilterType.PRICE -> "选择价格"
+                        FilterType.SELL -> "选择销量"
+                        FilterType.AGE -> "选择年龄分级"
+                        FilterType.LANG -> "选择语言"
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                if (type == FilterType.TAG || type == FilterType.CIRCLE || type == FilterType.VA) {
+                    IconButton(onClick = { refreshKey++ }) {
+                        Icon(Icons.Filled.Refresh, "刷新")
+                    }
                 }
-            )
+            }
         },
         text = {
             when (type) {
@@ -319,8 +330,8 @@ private fun FilterPickerDialog(
                         } else {
                             LazyColumn(Modifier.padding(top = 8.dp)) {
                                 when (type) {
-                                    FilterType.TAG -> items(tags.filter { searchText.isBlank() || (it.name?.contains(searchText, true) == true) }) { t ->
-                                        val name = t.name ?: return@items
+                                    FilterType.TAG -> items(tags.filter { t -> searchText.isBlank() || tagDisplayName(t, tagLanguage).contains(searchText, true) }) { t ->
+                                        val name = tagDisplayName(t, tagLanguage)
                                         FilterOptionRow(name) { onPick(SearchFilter(FilterType.TAG, name, name)) }
                                     }
                                     FilterType.CIRCLE -> items(circles.filter { searchText.isBlank() || (it.name?.contains(searchText, true) == true) }) { c ->

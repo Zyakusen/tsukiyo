@@ -179,6 +179,12 @@ class SettingsStore(context: Context) {
             prefs.edit().putString("exportDirUri", value).apply()
             _state.value = _state.value.copy(exportDirUri = value)
         }
+
+    var lastMirrorCheckAt: Long
+        get() = prefs.getLong("lastMirrorCheckAt", 0)
+        set(value) {
+            prefs.edit().putLong("lastMirrorCheckAt", value).apply()
+        }
 }
 
 data class SettingsState(

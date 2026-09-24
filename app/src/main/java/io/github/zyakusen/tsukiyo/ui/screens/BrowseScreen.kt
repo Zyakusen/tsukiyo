@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
@@ -94,6 +95,9 @@ fun BrowseScreen(navController: NavHostController) {
             actions = {
                 IconButton(onClick = { vm.refresh(); refreshFlag++ }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                }
+                IconButton(onClick = { navController.navigate(Routes.HISTORY) }) {
+                    Icon(Icons.Filled.History, contentDescription = "历史")
                 }
                 IconButton(onClick = { navController.navigate(Routes.SETTINGS) }) {
                     Icon(Icons.Filled.Settings, contentDescription = "设置")

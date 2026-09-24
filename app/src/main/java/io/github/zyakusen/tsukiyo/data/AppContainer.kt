@@ -9,6 +9,8 @@ import io.github.zyakusen.tsukiyo.player.PlayerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -30,6 +32,7 @@ class AppContainer(context: Context) {
     val repository: AsmrRepository
     val downloadManager: DownloadManager
     val reviewStore: ReviewStore
+    val historyStore: HistoryStore
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -42,11 +45,17 @@ class AppContainer(context: Context) {
         homeScrollToTopSignal.value++
     }
 
+    /** 在后台 IO 作用域执行挂起任务（供广播接收器等非 UI 入口使用）。 */
+    fun launchIO(block: suspend () -> Unit) {
+        scope.launch { block() }
+    }
+
     init {
         applyNetworkConfig()
-        repository = AsmrRepository({ api }, authManager, settingsStore)
+        repository = AsmrRepository({ api }, authManager, settingsStore, MetadataCache(context), WorkCache(context))
         downloadManager = DownloadManager(context, database.downloadDao())
         reviewStore = ReviewStore(database.reviewDao())
+        historyStore = HistoryStore(database.historyDao())
     }
 
     private fun applyNetworkConfig() {
@@ -81,21 +90,26 @@ class AppContainer(context: Context) {
         return freed
     }
 
-    /** 启动时根据测速选择延迟最低的可用镜像。 */
+    /** 启动时根据测速选择延迟最低的可用镜像（并行探测，7 天内不重复）。 */
     fun selectBestMirror() {
+        val now = System.currentTimeMillis()
+        if (now - settingsStore.lastMirrorCheckAt < 7L * 24 * 3600 * 1000) return
+        settingsStore.lastMirrorCheckAt = now
         scope.launch {
             val results = SettingsStore.MIRRORS.map { mirror ->
-                val latency = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val start = System.currentTimeMillis()
-                        val req = okhttp3.Request.Builder().url("${mirror}/api/health").build()
-                        NetworkModule.downloadClient.newCall(req).execute().use {
-                            if (it.isSuccessful) System.currentTimeMillis() - start else Long.MAX_VALUE
-                        }
-                    }.getOrDefault(Long.MAX_VALUE)
+                async {
+                    val latency = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val start = System.currentTimeMillis()
+                            val req = okhttp3.Request.Builder().url("${mirror}/api/health").build()
+                            NetworkModule.downloadClient.newCall(req).execute().use {
+                                if (it.isSuccessful) System.currentTimeMillis() - start else Long.MAX_VALUE
+                            }
+                        }.getOrDefault(Long.MAX_VALUE)
+                    }
+                    mirror to latency
                 }
-                mirror to latency
-            }
+            }.awaitAll()
             val best = results.filter { it.second < Long.MAX_VALUE }.minByOrNull { it.second }
             if (best != null) {
                 switchBaseUrl(best.first)

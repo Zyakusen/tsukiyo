@@ -24,10 +24,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -53,6 +55,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import io.github.zyakusen.tsukiyo.data.entity.DownloadItem
+import io.github.zyakusen.tsukiyo.download.ExportOptions
 import io.github.zyakusen.tsukiyo.player.PlayableTrack
 import io.github.zyakusen.tsukiyo.player.PlayerManager
 import io.github.zyakusen.tsukiyo.ui.LocalContainer
@@ -77,6 +80,8 @@ fun DownloadsScreen(navController: NavHostController) {
     var previewImage by remember { mutableStateOf<String?>(null) }
     var previewText by remember { mutableStateOf<String?>(null) }
     var deleteWorkId by remember { mutableStateOf<Long?>(null) }
+    var exportWorkId by remember { mutableStateOf<Long?>(null) }
+    var exportItem by remember { mutableStateOf<DownloadItem?>(null) }
 
     fun exportUri(): String? {
         val uri = container.settingsStore.exportDirUri
@@ -87,19 +92,19 @@ fun DownloadsScreen(navController: NavHostController) {
         return uri
     }
 
-    fun exportFile(item: DownloadItem) {
+    fun exportFile(item: DownloadItem, options: ExportOptions) {
         val uri = exportUri() ?: return
         scope.launch {
-            val result = container.downloadManager.exportFile(item, uri)
+            val result = container.downloadManager.exportFile(item, uri, options)
             result.onSuccess { Toast.makeText(context, "已导出", Toast.LENGTH_SHORT).show() }
                 .onFailure { Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() }
         }
     }
 
-    fun exportWork(workId: Long) {
+    fun exportWork(workId: Long, options: ExportOptions) {
         val uri = exportUri() ?: return
         scope.launch {
-            val result = container.downloadManager.exportWork(workId, uri)
+            val result = container.downloadManager.exportWork(workId, uri, options)
             result.onSuccess { n -> Toast.makeText(context, "已导出 $n 个文件", Toast.LENGTH_SHORT).show() }
                 .onFailure { Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() }
         }
@@ -184,7 +189,7 @@ fun DownloadsScreen(navController: NavHostController) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { exportWork(workId) }) { Icon(Icons.Filled.UploadFile, "导出") }
+                                IconButton(onClick = { exportWorkId = workId }) { Icon(Icons.Filled.UploadFile, "导出") }
                                 IconButton(onClick = { deleteWorkId = workId }) { Icon(Icons.Filled.Delete, "删除作品") }
                                 Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -197,7 +202,20 @@ fun DownloadsScreen(navController: NavHostController) {
         val items = downloads.filter { it.workId == selected }
         val workTitle = items.firstOrNull()?.workTitle ?: ""
         Column(Modifier.fillMaxSize()) {
-            TopBar(workTitle, onBack = { selectedWork = null })
+            TopBar(
+                workTitle,
+                onBack = { selectedWork = null },
+                actions = {
+                    val failed = items.filter { it.status == DownloadItem.STATUS_FAILED }
+                    if (failed.isNotEmpty()) {
+                        IconButton(onClick = {
+                            scope.launch { failed.forEach { container.downloadManager.retry(it) } }
+                        }) {
+                            Icon(Icons.Filled.Refresh, "重试失败")
+                        }
+                    }
+                }
+            )
             LazyColumn(Modifier.fillMaxSize()) {
                 items(items, key = { it.id }) { item ->
                     val isAudio = isAudioFile(item.title)
@@ -225,6 +243,7 @@ fun DownloadsScreen(navController: NavHostController) {
                                     )
                                     Text("下载中 ${(item.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                                DownloadItem.STATUS_PAUSED -> Text("已暂停", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 DownloadItem.STATUS_FAILED -> Text("下载失败", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                 else -> Text("排队中", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -241,7 +260,13 @@ fun DownloadsScreen(navController: NavHostController) {
                                         )
                                     }
                                 }
-                                IconButton(onClick = { exportFile(item) }) { Icon(Icons.Filled.UploadFile, "导出") }
+                                IconButton(onClick = { exportItem = item }) { Icon(Icons.Filled.UploadFile, "导出") }
+                            }
+                            DownloadItem.STATUS_DOWNLOADING, DownloadItem.STATUS_QUEUED -> {
+                                IconButton(onClick = { scope.launch { container.downloadManager.pause(item.id) } }) { Icon(Icons.Filled.Pause, "暂停") }
+                            }
+                            DownloadItem.STATUS_PAUSED -> {
+                                IconButton(onClick = { scope.launch { container.downloadManager.resume(item.id) } }) { Icon(Icons.Filled.PlayArrow, "继续") }
                             }
                             DownloadItem.STATUS_FAILED -> {
                                 IconButton(onClick = { scope.launch { container.downloadManager.retry(item) } }) { Icon(Icons.Filled.Refresh, "重试") }
@@ -283,6 +308,26 @@ fun DownloadsScreen(navController: NavHostController) {
         )
     }
 
+    exportWorkId?.let { workId ->
+        ExportDialog(
+            onDismiss = { exportWorkId = null },
+            onConfirm = { opts ->
+                exportWorkId = null
+                exportWork(workId, opts)
+            }
+        )
+    }
+
+    exportItem?.let { item ->
+        ExportDialog(
+            onDismiss = { exportItem = null },
+            onConfirm = { opts ->
+                exportItem = null
+                exportFile(item, opts)
+            }
+        )
+    }
+
     deleteWorkId?.let { workId ->
         val title = downloads.firstOrNull { it.workId == workId }?.workTitle ?: ""
         AlertDialog(
@@ -298,4 +343,36 @@ fun DownloadsScreen(navController: NavHostController) {
             dismissButton = { TextButton(onClick = { deleteWorkId = null }) { Text("取消") } }
         )
     }
+}
+
+@Composable
+private fun ExportDialog(onDismiss: () -> Unit, onConfirm: (ExportOptions) -> Unit) {
+    var convertSubtitles by remember { mutableStateOf(true) }
+    var includeCover by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出选项") },
+        text = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().clickable { convertSubtitles = !convertSubtitles }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = convertSubtitles, onCheckedChange = { convertSubtitles = it })
+                    Text("转换字幕（VTT→LRC 并内嵌歌词）", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable { includeCover = !includeCover }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = includeCover, onCheckedChange = { includeCover = it })
+                    Text("放入作品封面（folder.jpg）", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(ExportOptions(convertSubtitles, includeCover)) }) { Text("导出") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }

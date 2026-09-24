@@ -1,7 +1,9 @@
 package io.github.zyakusen.tsukiyo.data.repository
 
 import io.github.zyakusen.tsukiyo.data.AuthManager
+import io.github.zyakusen.tsukiyo.data.MetadataCache
 import io.github.zyakusen.tsukiyo.data.SettingsStore
+import io.github.zyakusen.tsukiyo.data.WorkCache
 import io.github.zyakusen.tsukiyo.data.api.AsmrApi
 import io.github.zyakusen.tsukiyo.data.model.AuthResponse
 import io.github.zyakusen.tsukiyo.data.model.Circle
@@ -19,7 +21,9 @@ import io.github.zyakusen.tsukiyo.data.model.WorksResponse
 class AsmrRepository(
     private val apiProvider: () -> AsmrApi,
     private val authManager: AuthManager,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    private val metadataCache: MetadataCache,
+    private val workCache: WorkCache
 ) {
 
     private val api: AsmrApi get() = apiProvider()
@@ -84,13 +88,42 @@ class AsmrRepository(
 
     suspend fun getTracks(id: Long): List<Track> = api.getTracks(id)
 
+    /** 获取作品详情 + 音轨树，优先走缓存，force 时强制刷新。 */
+    suspend fun getWorkWithTracks(id: Long, force: Boolean = false): Pair<Work, List<Track>> {
+        if (!force) workCache.get(id)?.let { return it }
+        val work = api.getWorkInfo(id)
+        val tracks = api.getTracks(id)
+        workCache.put(id, work, tracks)
+        return work to tracks
+    }
+
     // ---------- 标签 / 社团 / 声优 ----------
 
-    suspend fun getTags(): List<Tag> = api.getTags()
+    suspend fun getTags(force: Boolean = false): List<Tag> {
+        if (!force) metadataCache.freshTags()?.let { return it }
+        return runCatching { api.getTags() }
+            .onSuccess { metadataCache.putTags(it) }
+            .getOrElse { metadataCache.staleTags() ?: emptyList() }
+    }
+
     suspend fun getTag(id: Long): Tag = api.getTag(id)
-    suspend fun getCircles(): List<Circle> = api.getCircles()
+
+    suspend fun getCircles(force: Boolean = false): List<Circle> {
+        if (!force) metadataCache.freshCircles()?.let { return it }
+        return runCatching { api.getCircles() }
+            .onSuccess { metadataCache.putCircles(it) }
+            .getOrElse { metadataCache.staleCircles() ?: emptyList() }
+    }
+
     suspend fun getCircle(id: Long): Circle = api.getCircle(id)
-    suspend fun getVas(): List<Va> = api.getVas()
+
+    suspend fun getVas(force: Boolean = false): List<Va> {
+        if (!force) metadataCache.freshVas()?.let { return it }
+        return runCatching { api.getVas() }
+            .onSuccess { metadataCache.putVas(it) }
+            .getOrElse { metadataCache.staleVas() ?: emptyList() }
+    }
+
     suspend fun getVa(id: String): Va = api.getVa(id)
 
     // ---------- 评分 / 进度 ----------

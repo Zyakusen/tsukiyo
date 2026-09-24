@@ -12,6 +12,8 @@ import io.github.zyakusen.tsukiyo.util.FilterType
 import io.github.zyakusen.tsukiyo.util.PagingState
 import io.github.zyakusen.tsukiyo.util.SearchFilter
 import io.github.zyakusen.tsukiyo.util.SearchPreset
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -85,37 +87,53 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setSort(key: String) {
         sortKey = key
-        refresh()
+        refreshDebounced()
     }
 
     fun toggleSortAsc() {
         sortAsc = !sortAsc
-        refresh()
+        refreshDebounced()
     }
 
     fun addFilter(filter: SearchFilter) {
-        filters.add(filter)
-        refresh()
+        val idx = filters.indexOfFirst { it.type == filter.type && it.name == filter.name }
+        if (idx >= 0) filters[idx] = filter else filters.add(filter)
+        refreshDebounced()
     }
 
     fun toggleFilter(filter: SearchFilter) {
         val idx = filters.indexOfFirst { it.raw == filter.raw }
         if (idx >= 0) {
             filters[idx] = filter.toggleExclude()
-            refresh()
+            refreshDebounced()
         }
     }
 
     fun removeFilter(filter: SearchFilter) {
         filters.removeAll { it.raw == filter.raw }
-        refresh()
+        refreshDebounced()
     }
 
     fun refresh() {
+        debounceJob?.cancel()
         if (query.isNotBlank()) {
             viewModelScope.launch { paging.refresh() }
         } else {
             paging.items.clear()
+        }
+    }
+
+    private var debounceJob: Job? = null
+
+    private fun refreshDebounced() {
+        debounceJob?.cancel()
+        debounceJob = viewModelScope.launch {
+            delay(400)
+            if (query.isNotBlank()) {
+                paging.refresh()
+            } else {
+                paging.items.clear()
+            }
         }
     }
 }

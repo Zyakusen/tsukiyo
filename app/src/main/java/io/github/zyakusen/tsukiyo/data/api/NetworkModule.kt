@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import okhttp3.Cache
 import okhttp3.Credentials
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -76,7 +77,7 @@ object NetworkModule {
         val retrofit = Retrofit.Builder()
             .baseUrl(ensureTrailingSlash(baseUrl))
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create(buildGson()))
+            .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
 
         authenticatedClient = client
@@ -89,10 +90,12 @@ object NetworkModule {
         downloadClient = buildOkHttp(settings)
     }
 
-    private fun buildGson(): Gson =
+    /** 共享 Gson（含 List 类型容错适配），供网络层与本地缓存复用。 */
+    val gson: Gson by lazy {
         GsonBuilder()
             .registerTypeAdapter(List::class.java, FlexibleListDeserializer())
             .create()
+    }
 
     private fun baseOkHttpBuilder(settings: SettingsState?): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()
@@ -105,7 +108,12 @@ object NetworkModule {
     }
 
     private fun buildOkHttp(settings: SettingsState?): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 4
+            maxRequestsPerHost = 2
+        }
         val builder = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)

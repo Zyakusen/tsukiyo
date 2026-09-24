@@ -46,6 +46,7 @@ import io.github.zyakusen.tsukiyo.ui.screens.BrowseScreen
 import io.github.zyakusen.tsukiyo.ui.screens.CircleWorksScreen
 import io.github.zyakusen.tsukiyo.ui.screens.DownloadsScreen
 import io.github.zyakusen.tsukiyo.ui.screens.FavoritesScreen
+import io.github.zyakusen.tsukiyo.ui.screens.HistoryScreen
 import io.github.zyakusen.tsukiyo.ui.screens.LoginScreen
 import io.github.zyakusen.tsukiyo.ui.screens.PlayerScreen
 import io.github.zyakusen.tsukiyo.ui.screens.PlaylistWorksScreen
@@ -62,6 +63,7 @@ object Routes {
     const val CATEGORIES = "categories"
     const val FAVORITES = "favorites"
     const val DOWNLOADS = "downloads"
+    const val HISTORY = "history"
 
     const val WORK = "work/{workId}"
     fun work(id: Long) = "work/$id"
@@ -186,6 +188,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 .clipToBounds()
         ) {            composable(Routes.BROWSE) { BrowseScreen(navController) }
             composable(Routes.SEARCH) { SearchScreen(navController) }
+            composable(Routes.HISTORY) { HistoryScreen(navController) }
             composable(Routes.FAVORITES) { FavoritesScreen(navController) }
             composable(Routes.DOWNLOADS) { DownloadsScreen(navController) }
 

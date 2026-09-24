@@ -98,10 +98,10 @@ import io.github.zyakusen.tsukiyo.util.extension
 import io.github.zyakusen.tsukiyo.util.findSmartPath
 import io.github.zyakusen.tsukiyo.util.formatDuration
 import io.github.zyakusen.tsukiyo.util.formatSize
-import io.github.zyakusen.tsukiyo.util.isSubtitleFile
 import io.github.zyakusen.tsukiyo.util.isLowVoteTag
 import io.github.zyakusen.tsukiyo.util.progressOptions
 import io.github.zyakusen.tsukiyo.util.saveImageToGallery
+import io.github.zyakusen.tsukiyo.util.saveImageFileToGallery
 import io.github.zyakusen.tsukiyo.util.tagDisplayName
 import io.github.zyakusen.tsukiyo.util.toPlayable
 import java.io.File
@@ -143,6 +143,7 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var reloadKey by remember { mutableStateOf(0) }
 
     val audioTracks = remember(rawTracks) {
         container.repository.flattenAudioTracks(rawTracks)
@@ -155,23 +156,23 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     var showProgress by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
     var previewText by remember { mutableStateOf<String?>(null) }
-    var previewImage by remember { mutableStateOf<String?>(null) }
+    var previewImage by remember { mutableStateOf<Any?>(null) }
     var filterAction by remember { mutableStateOf<FilterAction?>(null) }
 
     val downloads by container.downloadManager.observeByWork(workId).collectAsState(initial = emptyList())
 
-    LaunchedEffect(workId, smartPathFingerprint) {
+    LaunchedEffect(workId, smartPathFingerprint, reloadKey) {
         loading = true
         error = null
         try {
-            val w = container.repository.getWorkInfo(workId)
+            val (w, raw) = container.repository.getWorkWithTracks(workId, force = reloadKey > 0)
             val local = container.reviewStore.get(workId)
             work = w.copy(
                 userRating = w.userRating ?: local?.rating,
                 reviewText = w.reviewText ?: local?.reviewText,
                 progress = w.progress ?: local?.progress
             )
-            val raw = container.repository.getTracks(workId)
+            container.historyStore.record(w)
             rawTracks = raw
             subtitleMap = collectSubtitleMap(raw)
 
@@ -185,20 +186,21 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             } else {
                 currentPath = resolvePath(raw, savedPathKey ?: "")
             }
-
-            if (auth.isRealUser) {
-                runCatching {
-                    val exist = container.repository.getWorkExistStatus(workId)
-                    playlists = exist.playlists ?: emptyList()
-                }
-            }
-
-            runCatching { similarWorks = container.repository.similarWorks(workId).works ?: emptyList() }
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
         } finally {
             loading = false
         }
+    }
+
+    LaunchedEffect(workId) {
+        if (auth.isRealUser) {
+            runCatching {
+                val exist = container.repository.getWorkExistStatus(workId)
+                playlists = exist.playlists ?: emptyList()
+            }
+        }
+        runCatching { similarWorks = container.repository.similarWorks(workId).works ?: emptyList() }
     }
 
     fun updatePath(newPath: List<Track>) {
@@ -208,16 +210,22 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
+    fun localFileFor(track: Track): File? {
+        val hash = track.hash ?: return null
+        return downloads.firstOrNull { it.id == hash && it.status == DownloadItem.STATUS_DONE && it.localPath != null }
+            ?.localPath?.let { File(it) }?.takeIf { it.exists() }
+    }
+
     fun buildQueue(): List<io.github.zyakusen.tsukiyo.player.PlayableTrack> {
         val w = work ?: return emptyList()
         return audioTracks.map { track ->
-            val onlineSubtitle = subtitleMap[baseName(track.title ?: "")]
+            val onlineSubtitle = subtitleMap[track.hash]
             val hash = track.hash
             val dl = hash?.let { h ->
                 downloads.firstOrNull { it.id == h && it.status == DownloadItem.STATUS_DONE && it.localPath != null }
             }
             if (dl != null && File(dl.localPath!!).exists()) {
-                val localSub = localSubtitleFor(track.title ?: "", downloads)
+                val localSub = localSubtitleFor(track.title ?: "", dl.folderPath, downloads)
                 track.toPlayable(w, localSub ?: onlineSubtitle).copy(
                     highUrl = Uri.fromFile(File(dl.localPath!!)).toString(),
                     lowUrl = null
@@ -266,7 +274,7 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             ) {
                 Text(error ?: "", color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { scope.launch { loading = true; error = null; runCatching { work = container.repository.getWorkInfo(workId) } } }) { Text("重试") }
+                Button(onClick = { reloadKey++ }) { Text("重试") }
             }
             work != null -> {
                 val w = work!!
@@ -329,11 +337,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                                         TagChip(
                                             text = displayName,
                                             onClick = {
-                                                val name = tag.name ?: displayName
-                                                SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.TAG, name, displayName, false), true)
+                                                SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.TAG, displayName, displayName, false), true)
                                                 navController.navigateToSearch()
                                             },
-                                            onLongClick = { filterAction = FilterAction(FilterType.TAG, tag.name ?: displayName, displayName) },
+                                            onLongClick = { filterAction = FilterAction(FilterType.TAG, displayName, displayName) },
                                             dimmed = isLowVoteTag(tag)
                                         )
                                     }
@@ -427,10 +434,17 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                                 playFromIndex(if (globalIndex >= 0) globalIndex else 0)
                             },
                             onPreview = {
+                                val local = localFileFor(track)
                                 when (fileKind(track.title ?: "")) {
-                                    FileKind.IMAGE -> previewImage = track.mediaStreamUrl
-                                    FileKind.TEXT -> scope.launch { previewText = fetchText(track.mediaStreamUrl) }
-                                    FileKind.PDF -> openPdf(context, track.mediaDownloadUrl ?: track.mediaStreamUrl)
+                                    FileKind.IMAGE -> previewImage = local ?: track.mediaStreamUrl
+                                    FileKind.TEXT -> scope.launch {
+                                        previewText = local?.let { runCatching { it.readText() }.getOrElse { "（读取失败）" } }
+                                            ?: fetchText(track.mediaStreamUrl)
+                                    }
+                                    FileKind.PDF -> {
+                                        if (local != null) openPdfFile(context, local)
+                                        else openPdf(context, track.mediaDownloadUrl ?: track.mediaStreamUrl)
+                                    }
                                     else -> toast("该类型暂不支持预览")
                                 }
                             },
@@ -548,7 +562,7 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     }
 
     previewText?.let { TextPreviewDialog(content = it, onDismiss = { previewText = null }) }
-    previewImage?.let { ImagePreviewDialog(url = it, onDismiss = { previewImage = null }) }
+    previewImage?.let { ImagePreviewDialog(model = it, onDismiss = { previewImage = null }) }
 
     filterAction?.let { action ->
         FilterActionDialog(
@@ -591,28 +605,74 @@ private fun resolvePath(nodes: List<Track>, key: String): List<Track> {
 
 private fun collectSubtitleMap(nodes: List<Track>): Map<String, String> {
     val map = mutableMapOf<String, String>()
-    fun walk(list: List<Track>) {
+
+    // 全局索引：字幕标题 -> 首个 URL，用于跨目录回退。
+    val textByTitle = mutableMapOf<String, String>()
+    fun indexTexts(list: List<Track>) {
         for (t in list) {
-            if (t.type == "text") {
-                val url = t.mediaStreamUrl
-                val name = baseName(t.title ?: "")
-                if (!url.isNullOrBlank() && name.isNotBlank() && map[name] == null) map[name] = url
+            if (t.type == "text" && !t.mediaStreamUrl.isNullOrBlank()) {
+                val title = t.title ?: ""
+                if (title.isNotBlank() && !textByTitle.containsKey(title)) textByTitle[title] = t.mediaStreamUrl!!
             }
-            t.children?.let { walk(it) }
+            if (t.type == "folder") t.children?.let { indexTexts(it) }
+        }
+    }
+    indexTexts(nodes)
+
+    fun walk(list: List<Track>) {
+        val siblingByTitle = mutableMapOf<String, String>()
+        for (t in list) {
+            if (t.type == "text" && !t.mediaStreamUrl.isNullOrBlank()) {
+                val title = t.title ?: ""
+                if (title.isNotBlank() && !siblingByTitle.containsKey(title)) siblingByTitle[title] = t.mediaStreamUrl!!
+            }
+        }
+        for (a in list) {
+            if (a.type != "audio") continue
+            val hash = a.hash ?: continue
+            val audioTitle = a.title ?: continue
+            var url: String? = null
+            // 1) 同级目录同名字幕
+            for (name in subtitleNamesFor(audioTitle)) {
+                url = siblingByTitle[name]
+                if (url != null) break
+            }
+            // 2) 跨目录同名回退
+            if (url == null) {
+                for (name in subtitleNamesFor(audioTitle)) {
+                    url = textByTitle[name]
+                    if (url != null) break
+                }
+            }
+            if (url != null) map[hash] = url
+        }
+        for (t in list) {
+            if (t.type == "folder") t.children?.let { walk(it) }
         }
     }
     walk(nodes)
     return map
 }
 
-/** 在已下载文件中查找与音频基础名匹配的本地字幕文件。 */
-private fun localSubtitleFor(audioTitle: String, downloads: List<DownloadItem>): String? {
+/** 音频的字幕候选文件名（vtt/srt 为文件名追加、lrc/srt 为扩展名替换）。 */
+private fun subtitleNamesFor(audioTitle: String): List<String> {
     val base = baseName(audioTitle)
-    return downloads
-        .filter { it.status == DownloadItem.STATUS_DONE && it.localPath != null && isSubtitleFile(it.title) && baseName(it.title) == base }
-        .mapNotNull { it.localPath?.let(::File) }
-        .firstOrNull { it.exists() }
-        ?.let { Uri.fromFile(it).toString() }
+    return listOf(audioTitle + ".vtt", audioTitle + ".srt", "$base.lrc", "$base.srt")
+}
+
+/** 在已下载文件中查找与音频匹配的本地字幕文件（同级目录优先，再跨目录回退）。 */
+private fun localSubtitleFor(audioTitle: String, folderPath: String, downloads: List<DownloadItem>): String? {
+    val names = subtitleNamesFor(audioTitle)
+    val done = downloads.filter {
+        it.status == DownloadItem.STATUS_DONE && it.localPath != null && it.title in names
+    }
+    fun resolve(items: List<DownloadItem>): String? =
+        items.sortedBy { names.indexOf(it.title) }
+            .mapNotNull { it.localPath?.let(::File) }
+            .firstOrNull { it.exists() }
+            ?.let { Uri.fromFile(it).toString() }
+    resolve(done.filter { it.folderPath == folderPath })?.let { return it }
+    return resolve(done)
 }
 
 private suspend fun fetchText(url: String?): String = withContext(Dispatchers.IO) {
@@ -629,6 +689,19 @@ private fun openPdf(context: android.content.Context, url: String?) {
     if (url.isNullOrBlank()) return
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
+private fun openPdfFile(context: android.content.Context, file: File) {
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context, context.packageName + ".fileprovider", file
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
     }
 }
 
@@ -701,7 +774,9 @@ private fun FileRow(
                     Icon(if (downloaded) Icons.Filled.DownloadDone else Icons.Filled.Download, "下载", tint = if (downloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                IconButton(onClick = onDownload) { Icon(Icons.Filled.Download, "下载") }
+                IconButton(onClick = onDownload) {
+                    Icon(if (downloaded) Icons.Filled.DownloadDone else Icons.Filled.Download, "下载", tint = if (downloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -816,22 +891,27 @@ private fun TextPreviewDialog(content: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ImagePreviewDialog(url: String, onDismiss: () -> Unit) {
+private fun ImagePreviewDialog(model: Any?, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
             Box(Modifier.fillMaxWidth().padding(8.dp)) {
                 AsyncImage(
-                    model = url,
+                    model = model,
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pointerInput(url) {
+                        .pointerInput(model) {
                             detectTapGestures(
                                 onLongPress = {
                                     scope.launch {
-                                        val ok = saveImageToGallery(context, url, "asmr_${System.currentTimeMillis()}.jpg")
+                                        val name = "asmr_${System.currentTimeMillis()}.jpg"
+                                        val ok = when (model) {
+                                            is File -> saveImageFileToGallery(context, model, name)
+                                            is String -> saveImageToGallery(context, model, name)
+                                            else -> false
+                                        }
                                         Toast.makeText(context, if (ok) "已保存到相册" else "保存失败", Toast.LENGTH_SHORT).show()
                                     }
                                 }

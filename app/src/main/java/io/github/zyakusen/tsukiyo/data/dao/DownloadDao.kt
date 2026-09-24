@@ -30,11 +30,23 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status = :status")
     suspend fun getByStatus(status: Int): List<DownloadItem>
 
+    @Query("SELECT COUNT(*) FROM downloads WHERE status = :status")
+    suspend fun countByStatus(status: Int): Int
+
+    @Query("SELECT * FROM downloads WHERE status = :status ORDER BY createdAt ASC LIMIT 1")
+    suspend fun getFirstByStatus(status: Int): DownloadItem?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: DownloadItem)
 
     @Update
     suspend fun update(item: DownloadItem)
+
+    @Query("UPDATE downloads SET progress = :progress, downloadedBytes = :bytes WHERE id = :id")
+    suspend fun updateProgress(id: String, progress: Float, bytes: Long)
+
+    @Query("UPDATE downloads SET downloadedBytes = :bytes WHERE id = :id")
+    suspend fun updateDownloadedBytes(id: String, bytes: Long)
 
     @Delete
     suspend fun delete(item: DownloadItem)
