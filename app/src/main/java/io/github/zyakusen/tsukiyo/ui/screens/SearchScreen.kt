@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -105,7 +106,7 @@ fun SearchScreen(navController: NavHostController) {
         )
 
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = { vm.commitSearch() }) { Text("搜索") }
@@ -148,7 +149,7 @@ fun SearchScreen(navController: NavHostController) {
         ) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp),
+                contentPadding = PaddingValues(vertical = 0.dp),
                 modifier = Modifier.weight(1f)
             ) {
                 items(sortOptions) { option ->
@@ -168,7 +169,11 @@ fun SearchScreen(navController: NavHostController) {
         if (vm.query.isBlank()) {
             EmptyState("输入关键词或添加筛选条件开始搜索")
         } else {
-            PagedGrid(state = vm.paging, key = { it.id ?: 0L }) { work ->
+            PagedGrid(
+                state = vm.paging,
+                key = { it.id ?: 0L },
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)
+            ) { work ->
                 WorkCard(work, blurNsfw = !settings.showNsfw) { work.id?.let { navController.navigate(Routes.work(it)) } }
             }
         }
@@ -205,11 +210,17 @@ private fun FilterChip(filter: SearchFilter, onToggle: () -> Unit, onRemove: () 
                 color = if (filter.isExclude) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
                     .clickable(onClick = onToggle)
-                    .padding(start = 12.dp, top = 6.dp, bottom = 6.dp)
+                    .padding(start = 12.dp, top = 3.dp, bottom = 3.dp)
             )
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Filled.Close, "移除", modifier = Modifier.padding(0.dp))
-            }
+            Icon(
+                Icons.Filled.Close,
+                "移除",
+                tint = if (filter.isExclude) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .clickable(onClick = onRemove)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .size(14.dp)
+            )
         }
     }
 }

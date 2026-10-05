@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -51,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,7 +86,7 @@ fun PlayerScreen(navController: NavHostController) {
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { navController.popBackStack() }) {
@@ -95,7 +97,7 @@ fun PlayerScreen(navController: NavHostController) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f).basicMarquee()
+                modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE)
             )
         }
 
@@ -123,27 +125,24 @@ fun PlayerScreen(navController: NavHostController) {
             }
         }
 
-        Box(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 32.dp),
-            contentAlignment = Alignment.Center
+                .padding(horizontal = 32.dp)
         ) {
-            CoverImage(track.coverUrl, Modifier.fillMaxWidth(0.8f).aspectRatio(1f))
-        }
-
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .padding(horizontal = 32.dp),
-            contentAlignment = Alignment.Center
-        ) {
+            val naturalHeight = maxWidth * 3f / 4f
+            val coverWidth = if (maxHeight < naturalHeight) maxHeight * 4f / 3f else maxWidth
+            CoverImage(
+                track.coverUrl,
+                Modifier.align(Alignment.Center).width(coverWidth).aspectRatio(4f / 3f),
+                contentScale = ContentScale.Fit
+            )
             if (state.subtitleEnabled && !state.currentSubtitle.isNullOrBlank()) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    shape = RoundedCornerShape(8.dp)
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
                     Text(
                         state.currentSubtitle ?: "",

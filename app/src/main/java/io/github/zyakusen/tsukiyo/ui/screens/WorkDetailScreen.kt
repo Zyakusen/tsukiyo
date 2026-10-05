@@ -68,11 +68,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
@@ -281,54 +287,57 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                 LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
                     item {
                         Column(Modifier.padding(horizontal = 16.dp)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                                CoverImage(w.coverUrl, Modifier.width(120.dp).aspectRatio(1f))
-                                Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(w.title ?: "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.height(6.dp))
-                                    if (w.circleName != null) {
-                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            TagChip(
-                                                text = "社团：${w.circleName}",
-                                                onClick = {
-                                                    SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.CIRCLE, w.circleName, w.circleName, false), true)
-                                                    navController.navigateToSearch()
-                                                },
-                                                onLongClick = { filterAction = FilterAction(FilterType.CIRCLE, w.circleName, w.circleName) }
-                                            )
-                                        }
-                                    }
-                                    if (w.vas?.isNotEmpty() == true) {
-                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
-                                            w.vas!!.forEach { va ->
-                                                val name = va.name ?: return@forEach
-                                                TagChip(
-                                                    text = name,
-                                                    onClick = {
-                                                        SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.VA, name, name, false), true)
-                                                        navController.navigateToSearch()
-                                                    },
-                                                    onLongClick = { filterAction = FilterAction(FilterType.VA, name, name) }
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        RatingBar(w.rateAverage2dp ?: 0.0)
-                                        Text(" ${w.rateAverage2dp ?: "-"} (${w.rateCount ?: 0})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+                            CoverImage(w.coverUrl, Modifier.fillMaxWidth().aspectRatio(4f / 3f), contentScale = ContentScale.Fit)
+                            Spacer(Modifier.height(12.dp))
+                            Text(w.title ?: "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(8.dp))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (w.circleName != null) {
+                                    TagChip(
+                                        text = "社团：${w.circleName}",
+                                        onClick = {
+                                            SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.CIRCLE, w.circleName, w.circleName, false), true)
+                                            navController.navigateToSearch()
+                                        },
+                                        onLongClick = { filterAction = FilterAction(FilterType.CIRCLE, w.circleName, w.circleName) }
+                                    )
+                                }
+                                w.vas?.forEach { va ->
+                                    val name = va.name ?: return@forEach
+                                    TagChip(
+                                        text = name,
+                                        onClick = {
+                                            SearchPreset.pending = SearchPreset.Pending(SearchFilter(FilterType.VA, name, name, false), true)
+                                            navController.navigateToSearch()
+                                        },
+                                        onLongClick = { filterAction = FilterAction(FilterType.VA, name, name) }
+                                    )
                                 }
                             }
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RatingBar(w.rateAverage2dp ?: 0.0)
+                                Text(" ${w.rateAverage2dp ?: "-"} (${w.rateCount ?: 0})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(Modifier.height(8.dp))
                             val meta = buildList {
                                 w.sourceId?.let { add(it) }
                                 w.release?.let { add(it) }
-                                w.ageCategoryString?.let { add(it) }
                                 w.duration?.let { add("时长 ${formatDuration(it)}") }
-                                add("DL ${w.dlCount ?: 0}")
+                                w.ageCategoryString?.let { add(it) }
                             }
                             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(6.dp))
+                            val priceInfo = buildAnnotatedString {
+                                withStyle(SpanStyle(color = Color(0xFFE53935), fontWeight = FontWeight.Bold, fontSize = 16.sp)) {
+                                    append("${w.price ?: 0}JPY")
+                                }
+                                withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
+                                    append(" · DL ${w.dlCount ?: 0}")
+                                    append(" · ${if (w.hasSubtitle == true) "有字幕" else "无字幕"}")
+                                }
+                            }
+                            Text(priceInfo, style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
                             if (w.tags?.isNotEmpty() == true) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -395,13 +404,10 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
                     }
 
                     item {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                            Text("文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             val breadcrumb = (listOf("根目录") + currentPath.map { it.title ?: "" }).joinToString(" / ")
-                            Text(breadcrumb, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(breadcrumb, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 

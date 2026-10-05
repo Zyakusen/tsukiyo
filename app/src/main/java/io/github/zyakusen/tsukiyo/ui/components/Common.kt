@@ -64,7 +64,8 @@ fun CoverImage(
     url: String?,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
-    blur: Boolean = false
+    blur: Boolean = false,
+    contentScale: ContentScale = ContentScale.Crop
 ) {
     Box(
         modifier = modifier
@@ -78,7 +79,7 @@ fun CoverImage(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (blur) Modifier.blur(20.dp) else Modifier),
-                contentScale = ContentScale.Crop
+                contentScale = contentScale
             )
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

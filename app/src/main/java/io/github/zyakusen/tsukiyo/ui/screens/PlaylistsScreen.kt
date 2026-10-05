@@ -215,8 +215,10 @@ fun PlaylistsScreen(navController: NavHostController) {
                             )
                         }
                         IconButton(onClick = { editing = pl }) { Icon(Icons.Filled.Edit, "编辑") }
-                        if (!system) {
+                        if ((pl.privacy ?: 0) != 0) {
                             IconButton(onClick = { copyLink(pl) }) { Icon(Icons.Filled.Link, "复制链接") }
+                        }
+                        if (!system) {
                             IconButton(onClick = { deleting = pl }) { Icon(Icons.Filled.Delete, "删除") }
                         }
                     }
