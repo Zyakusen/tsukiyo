@@ -61,25 +61,26 @@ fun BrowseScreen(navController: NavHostController) {
     val auth by container.authManager.state.collectAsState()
     val vm: BrowseViewModel = viewModel { BrowseViewModel(container) }
 
-    var popularWorks by remember { mutableStateOf<List<Work>>(emptyList()) }
-    var recommendWorks by remember { mutableStateOf<List<Work>>(emptyList()) }
     var refreshFlag by remember { mutableStateOf(0) }
     var showPageDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
+    // 首页顶部两行数据放在 ViewModel 中（跨导航保留），返回首帧列表项数量就与离开时一致，
+    // 否则 rememberLazyGridState 按绝对下标恢复会让位置"错一个/两个作品"。
     LaunchedEffect(settings.showPopularAtHome, refreshFlag) {
         if (settings.showPopularAtHome) {
-            runCatching { popularWorks = container.repository.popularWorks(pageSize = 20).works ?: emptyList() }
+            vm.loadPopular(force = refreshFlag > 0)
+        } else {
+            vm.clearPopular()
         }
     }
 
     LaunchedEffect(settings.showRecommendAtHome, auth.isRealUser, refreshFlag) {
-        if (settings.showRecommendAtHome && auth.isRealUser) {
-            runCatching { recommendWorks = container.repository.recommendWorks(pageSize = 20).works ?: emptyList() }
-        } else {
-            recommendWorks = emptyList()
-        }
+        vm.loadRecommend(
+            enabled = settings.showRecommendAtHome && auth.isRealUser,
+            force = refreshFlag > 0
+        )
     }
 
     LaunchedEffect(settings.subtitlesOnly) {
@@ -141,8 +142,15 @@ fun BrowseScreen(navController: NavHostController) {
         LaunchedEffect(scrollSignal) {
             if (scrollSignal > 0) gridState.scrollToItem(0)
         }
+        // 只有"页码真的变化"时才回到顶部。
+        // 不能写成 LaunchedEffect(vm.currentPage) { if (currentPage > 1) scrollToItem(0) }：
+        // LaunchedEffect 首次进入也会执行，从详情页返回第 N 页时会把好不容易恢复的位置直接重置到顶端。
+        var lastPage by remember { mutableStateOf(vm.currentPage) }
         LaunchedEffect(vm.currentPage) {
-            if (vm.currentPage > 1) gridState.scrollToItem(0)
+            if (vm.currentPage != lastPage) {
+                lastPage = vm.currentPage
+                gridState.scrollToItem(0)
+            }
         }
 
         LazyVerticalGrid(
@@ -154,22 +162,24 @@ fun BrowseScreen(navController: NavHostController) {
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
             if (vm.currentPage == 1) {
-                if (settings.showPopularAtHome && popularWorks.isNotEmpty()) {
-                    item(span = { GridItemSpan(2) }) {
+                // 给顶部行加稳定 key：即使这两行出现/消失，Compose 也能按 key 重新锚定首个可见项，
+                // 而不是退回"绝对下标"导致位置整体错位。
+                if (settings.showPopularAtHome && vm.popularWorks.isNotEmpty()) {
+                    item(key = "home-popular", span = { GridItemSpan(2) }) {
                         HorizontalWorkRow(
                             title = "热门作品",
-                            works = popularWorks,
+                            works = vm.popularWorks,
                             blurNsfw = !settings.showNsfw,
                             onClick = { work -> work.id?.let { navController.navigate(Routes.work(it)) } }
                         )
                     }
                 }
 
-                if (settings.showRecommendAtHome && auth.isRealUser && recommendWorks.isNotEmpty()) {
-                    item(span = { GridItemSpan(2) }) {
+                if (settings.showRecommendAtHome && auth.isRealUser && vm.recommendWorks.isNotEmpty()) {
+                    item(key = "home-recommend", span = { GridItemSpan(2) }) {
                         HorizontalWorkRow(
                             title = "推荐作品",
-                            works = recommendWorks,
+                            works = vm.recommendWorks,
                             blurNsfw = !settings.showNsfw,
                             onClick = { work -> work.id?.let { navController.navigate(Routes.work(it)) } }
                         )
@@ -182,14 +192,14 @@ fun BrowseScreen(navController: NavHostController) {
             }
 
             if (vm.loading && vm.items.isEmpty()) {
-                item(span = { GridItemSpan(2) }) { LoadingIndicator() }
+                item(key = "home-loading", span = { GridItemSpan(2) }) { LoadingIndicator() }
             }
             if (vm.error != null && vm.items.isEmpty()) {
-                item(span = { GridItemSpan(2) }) { ErrorState(vm.error) { vm.refresh() } }
+                item(key = "home-error", span = { GridItemSpan(2) }) { ErrorState(vm.error) { vm.refresh() } }
             }
 
             if (vm.items.isNotEmpty() && vm.totalPages > 1) {
-                item(span = { GridItemSpan(2) }) {
+                item(key = "home-pager", span = { GridItemSpan(2) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.Center,

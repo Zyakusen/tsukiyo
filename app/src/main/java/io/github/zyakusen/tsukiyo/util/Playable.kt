@@ -183,52 +183,7 @@ fun currentLrcIndex(lines: List<LrcLine>, positionMs: Long): Int {
     return idx
 }
 
-/**
- * 智能路径：根据用户偏好计算打开作品时默认进入的文件夹路径（从根到目标文件夹的 Track 链）。
- *
- * 逻辑：
- * 1. 深度优先遍历文件树，只考虑「直接包含音频文件」的文件夹。
- * 2. 若开启效果音偏好，优先进入「含 SE（且非 SEなし/无SE）」的文件夹，且优先匹配音频类型顺序。
- * 3. 再按音频类型偏好顺序依次查找。
- * 4. 都找不到时，兜底返回第一个直接包含音频的文件夹。
- */
-fun findSmartPath(nodes: List<Track>, sePreference: Boolean, audioTypeOrder: List<String>): List<Track> {
-    // SE 文件夹：标题含 SE/効果音/效果音/音效，但排除「なし/无/無」（表示无效果音）
-    fun isSeFolder(folder: Track): Boolean {
-        val t = folder.title?.lowercase() ?: return false
-        if (t.contains("なし") || t.contains("无") || t.contains("無")) return false
-        return t.contains("se") || t.contains("効果音") || t.contains("效果音") || t.contains("音效")
-    }
-
-    fun directlyContainsAudio(folder: Track): Boolean =
-        folder.children?.any { it.type == "audio" } == true
-
-    fun containsType(folder: Track, type: String): Boolean =
-        folder.children?.any { it.type == "audio" && it.title?.lowercase()?.endsWith(".$type") == true } == true
-
-    fun findFolder(predicate: (Track) -> Boolean): List<Track>? {
-        fun walk(list: List<Track>, path: List<Track>): List<Track>? {
-            for (n in list) {
-                if (n.type != "folder") continue
-                val newPath = path + n
-                if (directlyContainsAudio(n) && predicate(n)) return newPath
-                n.children?.let { child -> walk(child, newPath)?.let { return it } }
-            }
-            return null
-        }
-        return walk(nodes, emptyList())
-    }
-
-    if (sePreference) {
-        // 优先：SE 且匹配音频类型顺序
-        for (type in audioTypeOrder) {
-            findFolder { isSeFolder(it) && containsType(it, type) }?.let { return it }
-        }
-        // 其次：SE（任意格式）
-        findFolder { isSeFolder(it) }?.let { return it }
-    }
-    for (type in audioTypeOrder) {
-        findFolder { containsType(it, type) }?.let { return it }
-    }
-    return findFolder { true } ?: emptyList()
-}
+// 智能路径（findSmartPath）已迁移到 util/SmartPath.kt：
+//   SeNames（命名规则：段/文件/非正片）+ SmartPath（候选收集、分阶段过滤、确定性 tie-break）
+//   + PathKey（可校验寻址键）。
+// 旧的 isSeFolder + DFS 先序「第一个命中即返回」实现已删除。

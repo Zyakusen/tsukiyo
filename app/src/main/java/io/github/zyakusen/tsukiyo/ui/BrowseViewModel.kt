@@ -37,6 +37,20 @@ class BrowseViewModel(private val container: AppContainer) : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 首页顶部「热门作品」行。
+     *
+     * 放在 ViewModel 里而不是 Composable 的 `remember` 里：从作品详情页返回时首页会被重建，
+     * `remember` 的列表会丢失、顶部瞬间少一行，而 `rememberLazyGridState()` 恢复的是**绝对下标**，
+     * 于是视觉上会"往下错一个作品"（有推荐行时错两个）。放在 ViewModel 里则返回首帧就是完整列表。
+     */
+    var popularWorks by mutableStateOf<List<Work>>(emptyList())
+        private set
+
+    /** 首页顶部「推荐作品」行。同上，必须跨导航保留。 */
+    var recommendWorks by mutableStateOf<List<Work>>(emptyList())
+        private set
+
     private val pageSize = 40
 
     val totalPages: Int
@@ -52,6 +66,30 @@ class BrowseViewModel(private val container: AppContainer) : ViewModel() {
 
     fun toggleSortAsc() {
         sortAsc = !sortAsc
+    }
+
+    fun loadPopular(force: Boolean = false) {
+        if (!force && popularWorks.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { container.repository.popularWorks(pageSize = 20).works ?: emptyList() }
+                .onSuccess { popularWorks = it }
+        }
+    }
+
+    fun clearPopular() {
+        popularWorks = emptyList()
+    }
+
+    fun loadRecommend(enabled: Boolean, force: Boolean = false) {
+        if (!enabled) {
+            recommendWorks = emptyList()
+            return
+        }
+        if (!force && recommendWorks.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { container.repository.recommendWorks(pageSize = 20).works ?: emptyList() }
+                .onSuccess { recommendWorks = it }
+        }
     }
 
     fun refresh() {

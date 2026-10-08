@@ -218,13 +218,34 @@ fun SettingsScreen(navController: NavHostController) {
                 onCheckedChange = { container.settingsStore.smartPathEnabled = it }
             )
         }
-        SettingRow("效果音偏好") {
-            Switch(
-                checked = settings.sePreference,
-                onCheckedChange = { container.settingsStore.sePreference = it },
-                enabled = settings.smartPathEnabled
-            )
+        Text(
+            "效果音偏好",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (settings.smartPathEnabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            items(
+                listOf(
+                    SettingsStore.SE_MODE_ANY to "不限",
+                    SettingsStore.SE_MODE_WITH to "优先含 SE",
+                    SettingsStore.SE_MODE_WITHOUT to "优先无 SE"
+                )
+            ) { (key, label) ->
+                SelectableChip(label, settings.seMode == key, enabled = settings.smartPathEnabled) {
+                    container.settingsStore.seMode = key
+                }
+            }
         }
+        Text(
+            "先确保进入正片目录，再按此偏好选择含/不含效果音的目录；未标注的作品默认视为含效果音。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+        )
         Text(
             "音频类型偏好顺序",
             style = MaterialTheme.typography.bodyLarge,
@@ -243,6 +264,12 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             }
         }
+        Text(
+            "含/不含效果音确定后，再按此顺序选格式；以音频文件的真实扩展名为准，与目录名无关。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+        )
 
         SectionTitle("内容")
         SettingRow("显示 NSFW 封面") {

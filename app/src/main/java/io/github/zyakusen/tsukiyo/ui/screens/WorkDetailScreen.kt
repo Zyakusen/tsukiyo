@@ -101,6 +101,9 @@ import io.github.zyakusen.tsukiyo.util.SearchPreset
 import io.github.zyakusen.tsukiyo.util.baseName
 import io.github.zyakusen.tsukiyo.util.displayPlaylistName
 import io.github.zyakusen.tsukiyo.util.extension
+import io.github.zyakusen.tsukiyo.util.PathKey
+import io.github.zyakusen.tsukiyo.util.SeMode
+import io.github.zyakusen.tsukiyo.util.SmartPathPrefs
 import io.github.zyakusen.tsukiyo.util.findSmartPath
 import io.github.zyakusen.tsukiyo.util.formatDuration
 import io.github.zyakusen.tsukiyo.util.formatSize
@@ -144,7 +147,7 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     var subtitleMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var currentPath by remember { mutableStateOf<List<Track>>(emptyList()) }
 
-    val smartPathFingerprint = "${settings.smartPathEnabled}|${settings.sePreference}|${settings.audioTypeOrder.joinToString(",")}"
+    val smartPathFingerprint = "${settings.smartPathEnabled}|${settings.seMode}|${settings.audioTypeOrder.joinToString(",")}"
     var savedPathKey by rememberSaveable(smartPathFingerprint) { mutableStateOf<String?>(null) }
 
     var loading by remember { mutableStateOf(true) }
@@ -182,15 +185,24 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
             rawTracks = raw
             subtitleMap = collectSubtitleMap(raw)
 
-            if (savedPathKey == null) {
+            // 寻址：优先恢复上一次的目录（可校验键），解析失败则重新计算智能路径
+            val stored = savedPathKey
+            val applied = if (stored == null) null else PathKey.decode(raw, stored)
+            if (applied != null) {
+                currentPath = applied
+            } else {
                 currentPath = if (settings.smartPathEnabled) {
-                    findSmartPath(raw, settings.sePreference, settings.audioTypeOrder)
+                    findSmartPath(
+                        raw,
+                        SmartPathPrefs(
+                            seMode = SeMode.fromKey(settings.seMode),
+                            audioTypeOrder = settings.audioTypeOrder
+                        )
+                    ).path
                 } else {
                     emptyList()
                 }
-                savedPathKey = serializePath(currentPath)
-            } else {
-                currentPath = resolvePath(raw, savedPathKey ?: "")
+                savedPathKey = PathKey.encode(raw, currentPath)
             }
         } catch (e: Exception) {
             error = e.message ?: "加载失败"
@@ -211,7 +223,7 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 
     fun updatePath(newPath: List<Track>) {
         currentPath = newPath
-        savedPathKey = serializePath(newPath)
+        savedPathKey = PathKey.encode(rawTracks, newPath)
     }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -589,25 +601,8 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 }
 
 // ---------- 文件 ----------
-
-private const val PATH_SEP = "\u0001"
-
-private fun serializePath(path: List<Track>): String =
-    path.joinToString(PATH_SEP) { it.title ?: "" }
-
-private fun resolvePath(nodes: List<Track>, key: String): List<Track> {
-    if (key.isEmpty()) return emptyList()
-    val titles = key.split(PATH_SEP)
-    var current = nodes
-    val result = mutableListOf<Track>()
-    for (t in titles) {
-        val folder = current.firstOrNull { it.type == "folder" && it.title == t }
-        if (folder == null) break
-        result.add(folder)
-        current = folder.children ?: emptyList()
-    }
-    return result
-}
+// 目录寻址键已迁移到 util/PathKey.kt（可校验、失败返回 null 由调用方回退）。
+// 旧的 serializePath / resolvePath（只存标题、缺段静默截断）已删除。
 
 private fun collectSubtitleMap(nodes: List<Track>): Map<String, String> {
     val map = mutableMapOf<String, String>()
