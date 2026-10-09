@@ -14,6 +14,8 @@ class AsmrApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // 让图片加载也走设置里的代理与浏览器请求头（默认的 Coil 客户端不走代理）
+        container.installImageLoader()
         createNotificationChannels()
     }
 

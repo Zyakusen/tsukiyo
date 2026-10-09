@@ -26,6 +26,9 @@ class AppContainer(context: Context) {
     val authManager = AuthManager(context)
     val database = AppDatabase.getInstance(context)
 
+    /** 收藏的标签 / 社团 / 声优。 */
+    val tagFavorites = TagFavoritesStore(context)
+
     @Volatile
     lateinit var api: AsmrApi
 
@@ -73,6 +76,23 @@ class AppContainer(context: Context) {
     /** 重新登录后刷新认证相关的网络层（无操作，保留供调用）。 */
     fun applyProxySettings() {
         applyNetworkConfig()
+    }
+
+    /**
+     * 给 Coil 装上走应用网络配置的 ImageLoader（代理 + 浏览器请求头）。
+     *
+     * `okHttpClient { }` 是**惰性**取值，每次请求都读当前的 [NetworkModule.mediaClient]，
+     * 而改代理设置会走 applyNetworkConfig → rebuildDownloadClient 重建它，
+     * 所以这里装一次就够，之后改代理无需重新安装。
+     */
+    fun installImageLoader() {
+        runCatching {
+            coil.Coil.setImageLoader(
+                coil.ImageLoader.Builder(appContext)
+                    .okHttpClient { NetworkModule.mediaClient }
+                    .build()
+            )
+        }
     }
 
     /** 清理缓存（HTTP 缓存 + 图片缓存），返回释放的字节数。 */

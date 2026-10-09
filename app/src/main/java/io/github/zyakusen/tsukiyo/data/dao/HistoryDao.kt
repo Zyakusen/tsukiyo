@@ -19,6 +19,10 @@ interface HistoryDao {
     @Query("DELETE FROM history")
     suspend fun clear()
 
+    /** 删除某个作品的历史记录（历史页长按单项）。 */
+    @Query("DELETE FROM history WHERE workId = :workId")
+    suspend fun deleteByWork(workId: Long)
+
     @Query("DELETE FROM history WHERE workId NOT IN (SELECT workId FROM history ORDER BY viewedAt DESC LIMIT :limit)")
     suspend fun trim(limit: Int)
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,9 +48,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
@@ -67,6 +76,7 @@ import io.github.zyakusen.tsukiyo.util.formatSize
 import io.github.zyakusen.tsukiyo.util.isAudioFile
 import io.github.zyakusen.tsukiyo.util.isImageFile
 import io.github.zyakusen.tsukiyo.util.isSubtitleFile
+import io.github.zyakusen.tsukiyo.util.isVideoFile
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -96,7 +106,7 @@ fun DownloadsScreen(navController: NavHostController) {
         val uri = exportUri() ?: return
         scope.launch {
             val result = container.downloadManager.exportFile(item, uri, options)
-            result.onSuccess { Toast.makeText(context, "已导出", Toast.LENGTH_SHORT).show() }
+            result.onSuccess { s -> Toast.makeText(context, "「${item.workTitle}」${s.text}", Toast.LENGTH_LONG).show() }
                 .onFailure { Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() }
         }
     }
@@ -105,7 +115,7 @@ fun DownloadsScreen(navController: NavHostController) {
         val uri = exportUri() ?: return
         scope.launch {
             val result = container.downloadManager.exportWork(workId, uri, options)
-            result.onSuccess { n -> Toast.makeText(context, "已导出 $n 个文件", Toast.LENGTH_SHORT).show() }
+            result.onSuccess { s -> Toast.makeText(context, s.text, Toast.LENGTH_LONG).show() }
                 .onFailure { Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() }
         }
     }
@@ -220,60 +230,100 @@ fun DownloadsScreen(navController: NavHostController) {
                 items(items, key = { it.id }) { item ->
                     val isAudio = isAudioFile(item.title)
                     val canPreview = item.status == DownloadItem.STATUS_DONE && !isAudio
-                    Row(
+                    Column(
                         Modifier
                             .fillMaxWidth()
                             .clickable(enabled = canPreview) { preview(item) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                            when (item.status) {
-                                DownloadItem.STATUS_DONE -> Text(
-                                    "已下载 · ${formatSize(item.sizeBytes)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                        // 上半行：左侧文件名+状态，右侧操作按钮（按钮统一 40dp、图标 20dp，缩小占位与间隙）
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                MiddleEllipsisText(
+                                    text = item.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    headRatio = 0.6f
                                 )
-                                DownloadItem.STATUS_DOWNLOADING -> {
-                                    Spacer(Modifier.height(4.dp))
-                                    LinearProgressIndicator(
-                                        progress = { item.progress },
-                                        modifier = Modifier.fillMaxWidth().height(4.dp)
+                                when (item.status) {
+                                    DownloadItem.STATUS_DONE -> Text(
+                                        "已下载 · ${formatSize(item.sizeBytes)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
-                                    Text("下载中 ${(item.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                DownloadItem.STATUS_PAUSED -> Text("已暂停", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                DownloadItem.STATUS_FAILED -> Text("下载失败", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                                else -> Text("排队中", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        when (item.status) {
-                            DownloadItem.STATUS_DONE -> {
-                                if (isAudio) {
-                                    IconButton(onClick = { play(item) }) { Icon(Icons.Filled.PlayArrow, "播放") }
-                                } else {
-                                    IconButton(onClick = { preview(item) }) {
-                                        Icon(
-                                            if (isImageFile(item.title)) Icons.Filled.Image else Icons.Filled.Description,
-                                            "预览"
+                                    DownloadItem.STATUS_DOWNLOADING -> {
+                                        Spacer(Modifier.height(4.dp))
+                                        LinearProgressIndicator(
+                                            progress = { item.progress },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp)
                                         )
+                                        Text("下载中 ${(item.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    DownloadItem.STATUS_PAUSED -> Text("已暂停", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    DownloadItem.STATUS_FAILED -> Text("下载失败", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                    else -> Text("排队中", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                when (item.status) {
+                                    DownloadItem.STATUS_DONE -> {
+                                        if (isAudio) {
+                                            IconButton(onClick = { play(item) }, modifier = Modifier.size(40.dp)) {
+                                                Icon(Icons.Filled.PlayArrow, "播放", modifier = Modifier.size(20.dp))
+                                            }
+                                        } else {
+                                            IconButton(onClick = { preview(item) }, modifier = Modifier.size(40.dp)) {
+                                                Icon(
+                                                    if (isImageFile(item.title)) Icons.Filled.Image else Icons.Filled.Description,
+                                                    "预览",
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = {
+                                            // 只有音频才有字幕需要转换/内嵌（mp4/webm 这类视频除外），
+                                            // 非音频直接导出，不弹这个选择框
+                                            if (isAudioFile(item.title) && !isVideoFile(item.title)) {
+                                                exportItem = item
+                                            } else {
+                                                exportFile(item, ExportOptions(convertSubtitles = false, includeCover = false))
+                                            }
+                                        }, modifier = Modifier.size(40.dp)) {
+                                            Icon(Icons.Filled.UploadFile, "导出", modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    DownloadItem.STATUS_DOWNLOADING, DownloadItem.STATUS_QUEUED -> {
+                                        IconButton(onClick = { scope.launch { container.downloadManager.pause(item.id) } }, modifier = Modifier.size(40.dp)) {
+                                            Icon(Icons.Filled.Pause, "暂停", modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    DownloadItem.STATUS_PAUSED -> {
+                                        IconButton(onClick = { scope.launch { container.downloadManager.resume(item.id) } }, modifier = Modifier.size(40.dp)) {
+                                            Icon(Icons.Filled.PlayArrow, "继续", modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    DownloadItem.STATUS_FAILED -> {
+                                        IconButton(onClick = { scope.launch { container.downloadManager.retry(item) } }, modifier = Modifier.size(40.dp)) {
+                                            Icon(Icons.Filled.Refresh, "重试", modifier = Modifier.size(20.dp))
+                                        }
                                     }
                                 }
-                                IconButton(onClick = { exportItem = item }) { Icon(Icons.Filled.UploadFile, "导出") }
-                            }
-                            DownloadItem.STATUS_DOWNLOADING, DownloadItem.STATUS_QUEUED -> {
-                                IconButton(onClick = { scope.launch { container.downloadManager.pause(item.id) } }) { Icon(Icons.Filled.Pause, "暂停") }
-                            }
-                            DownloadItem.STATUS_PAUSED -> {
-                                IconButton(onClick = { scope.launch { container.downloadManager.resume(item.id) } }) { Icon(Icons.Filled.PlayArrow, "继续") }
-                            }
-                            DownloadItem.STATUS_FAILED -> {
-                                IconButton(onClick = { scope.launch { container.downloadManager.retry(item) } }) { Icon(Icons.Filled.Refresh, "重试") }
+                                IconButton(onClick = { scope.launch { container.downloadManager.delete(item) } }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Filled.Delete, "删除", modifier = Modifier.size(20.dp))
+                                }
                             }
                         }
-                        IconButton(onClick = { scope.launch { container.downloadManager.delete(item) } }) {
-                            Icon(Icons.Filled.Delete, "删除")
+                        // 下半行：灰色父目录路径**占满整行**（不再被右侧按钮挤压），
+                        // 用于区分同名/仅结尾不同的文件（wav 与 mp3、含SE 与 无SE）
+                        if (item.folderPath.isNotBlank()) {
+                            Spacer(Modifier.height(2.dp))
+                            PathEllipsisText(
+                                folderPath = item.folderPath,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
@@ -375,4 +425,105 @@ private fun ExportDialog(onDismiss: () -> Unit, onConfirm: (ExportOptions) -> Un
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+}
+
+/**
+ * 中部省略：放不下时保留首尾、掐掉中间，且**首部保留得比尾部多**。
+ *
+ * 不用 `TextOverflow.Ellipsis` 的原因：尾省略会把文件名的结尾（`wav`/`mp3`、`SEなし`）
+ * 这类真正的区分信息切掉，而中部省略能同时看到开头与结尾。
+ * 这里用 [TextMeasurer] 二分收敛，保证结果**恰好**放得下（中日英混排也算得准，不靠字符数估算）。
+ */
+private fun middleEllipsis(
+    text: String,
+    measurer: TextMeasurer,
+    style: TextStyle,
+    maxWidthPx: Int,
+    maxLines: Int,
+    headRatio: Float
+): String {
+    if (text.isEmpty() || maxWidthPx <= 0) return text
+    val constraints = Constraints(maxWidth = maxWidthPx)
+    fun fits(s: String): Boolean {
+        if (s.isEmpty()) return true
+        // 关键：这里必须用 Int.MAX_VALUE 量**自然排版**的行数。
+        // 之前传了 maxLines（1 或 2），measure 会把结果截到那个行数，
+        // 于是 lineCount 永远 <= maxLines、fits 恒为 true —— 省略逻辑根本不触发。
+        val r = measurer.measure(
+            text = AnnotatedString(s),
+            style = style,
+            maxLines = Int.MAX_VALUE,
+            constraints = constraints
+        )
+        return r.lineCount <= maxLines && r.size.width <= maxWidthPx
+    }
+    if (fits(text)) return text
+
+    var lo = 1
+    var hi = text.length
+    var best = "…"
+    while (lo <= hi) {
+        val keep = (lo + hi) / 2
+        val head = (keep * headRatio).toInt().coerceIn(1, keep)
+        val tail = (keep - head).coerceAtLeast(0)
+        val candidate = text.take(head) + "…" + if (tail > 0) text.takeLast(tail) else ""
+        if (fits(candidate)) {
+            best = candidate
+            lo = keep + 1
+        } else {
+            hi = keep - 1
+        }
+    }
+    return best
+}
+
+/** 按实际可用宽度做中部省略的文本（宽度由 [BoxWithConstraints] 拿到）。 */
+@Composable
+private fun MiddleEllipsisText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    maxLines: Int = 1,
+    headRatio: Float = 0.6f,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier) {
+        val measurer = rememberTextMeasurer()
+        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }.toInt()
+        val shown = remember(text, widthPx, maxLines, headRatio, style) {
+            if (maxWidth == Dp.Infinity) text
+            else middleEllipsis(text, measurer, style, widthPx, maxLines, headRatio)
+        }
+        Text(shown, style = style, color = color, maxLines = maxLines)
+    }
+}
+
+/**
+ * 作品内的父目录路径：**先给每一级各自限长**，再给整条路径兜底限长，保证一行放得下。
+ *
+ * 没有改成横向滑动：那一行只是小灰字提示，没人会去滑；而且外层整行是"点击预览"，
+ * 横滑手势会和它抢。
+ */
+@Composable
+private fun PathEllipsisText(
+    folderPath: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier) {
+        val measurer = rememberTextMeasurer()
+        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }.toInt()
+        val shown = remember(folderPath, widthPx, style) {
+            if (maxWidth == Dp.Infinity) folderPath
+            else {
+                // 单级最多占 1/3 行宽，这样至少能同时看到 2-3 级
+                val segMax = (widthPx / 3).coerceAtLeast(24)
+                val joined = folderPath.split("/").filter { it.isNotBlank() }
+                    .joinToString(" / ") { middleEllipsis(it, measurer, style, segMax, 1, 0.6f) }
+                middleEllipsis(joined, measurer, style, widthPx, 1, 0.6f)
+            }
+        }
+        Text(shown, style = style, color = color, maxLines = 1)
+    }
 }

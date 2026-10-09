@@ -69,6 +69,20 @@ fun baseName(title: String): String {
     return name.trim()
 }
 
+/**
+ * 音频对应的字幕候选文件名。
+ *
+ *  * `音频全名 + .vtt/.srt/.lrc`：服务器常见的「字幕紧跟在音频名后」命名（如 `01 xxx.mp3.vtt`，
+ *    也有社团直接给 `01 xxx.mp3.lrc`）；
+ *  * `去掉音频扩展名 + .lrc/.srt`：社团自压的字幕（如 `01 xxx.lrc`）。
+ *
+ * **播放与导出共用这一份规则**，避免两边匹配逻辑不一致。
+ */
+fun subtitleNamesFor(audioTitle: String): List<String> {
+    val base = baseName(audioTitle)
+    return listOf(audioTitle + ".vtt", audioTitle + ".srt", audioTitle + ".lrc", "$base.lrc", "$base.srt")
+}
+
 /** 解析 .lrc 字幕文本（支持 [mm:ss.cc] 与 [hh:mm:ss.cc] 两种时间戳）。 */
 fun parseLrc(content: String): List<LrcLine> {
     val lines = mutableListOf<LrcLine>()
@@ -97,10 +111,10 @@ fun parseLrc(content: String): List<LrcLine> {
     return lines.sortedBy { it.timeMs }
 }
 
-/** 解析 WebVTT 字幕文本（时间戳行与文本行分开）。 */
+/** 解析 WebVTT 字幕文本（时间戳行与文本行分开）。SRT 的毫秒分隔符是逗号，一并兼容。 */
 fun parseVtt(content: String): List<LrcLine> {
     val lines = mutableListOf<LrcLine>()
-    val timeTag = Regex("""(\d{1,3}):(\d{2}):(\d{2})[.](\d{3})\s*-->""")
+    val timeTag = Regex("""(\d{1,3}):(\d{2}):(\d{2})[.,](\d{3})\s*-->""")
     var startMs: Long? = null
     for (raw in content.lineSequence()) {
         val line = raw.trim()
@@ -129,9 +143,10 @@ fun parseSubtitle(content: String): List<LrcLine> {
     return if (trimmed.startsWith("WEBVTT") || trimmed.contains("-->")) parseVtt(content) else parseLrc(content)
 }
 
-/** 将 WebVTT 文本转换为 LRC 文本（时间戳换算为 [mm:ss.xx]，多行文本合并为一行）。 */
+/** 将 WebVTT / SRT 文本转换为 LRC 文本（时间戳换算为 [mm:ss.xx]，多行文本合并为一行）。 */
 fun vttToLrc(content: String): String {
-    val timeTag = Regex("""(\d{2}):(\d{2}):(\d{2})[.](\d{3})\s*-->""")
+    // SRT 的时间戳用逗号分隔毫秒（00:00:01,000），这里与点号一起兼容
+    val timeTag = Regex("""(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->""")
     val out = StringBuilder()
     var cueStart: Long? = null
     val cueText = StringBuilder()

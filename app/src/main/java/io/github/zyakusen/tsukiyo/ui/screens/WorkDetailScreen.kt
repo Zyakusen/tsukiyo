@@ -3,6 +3,7 @@ package io.github.zyakusen.tsukiyo.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -81,7 +84,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import coil.size.Scale
 import io.github.zyakusen.tsukiyo.data.entity.DownloadItem
 import io.github.zyakusen.tsukiyo.data.model.Playlist
 import io.github.zyakusen.tsukiyo.data.model.Track
@@ -89,6 +95,7 @@ import io.github.zyakusen.tsukiyo.data.model.Work
 import io.github.zyakusen.tsukiyo.player.PlayerManager
 import io.github.zyakusen.tsukiyo.ui.LocalContainer
 import io.github.zyakusen.tsukiyo.ui.components.CoverImage
+import io.github.zyakusen.tsukiyo.ui.components.FilterActionDialog
 import io.github.zyakusen.tsukiyo.ui.components.RatingBar
 import io.github.zyakusen.tsukiyo.ui.components.TagChip
 import io.github.zyakusen.tsukiyo.ui.components.WorkCard
@@ -167,6 +174,8 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     var previewText by remember { mutableStateOf<String?>(null) }
     var previewImage by remember { mutableStateOf<Any?>(null) }
     var filterAction by remember { mutableStateOf<FilterAction?>(null) }
+    // 收藏状态（长按标签的弹窗里显示"收藏/取消收藏"）
+    val favorites by container.tagFavorites.state.collectAsState()
 
     val downloads by container.downloadManager.observeByWork(workId).collectAsState(initial = emptyList())
 
@@ -221,9 +230,37 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
         runCatching { similarWorks = container.repository.similarWorks(workId).works ?: emptyList() }
     }
 
-    fun updatePath(newPath: List<Track>) {
+    /**
+     * 目录跳转历史（只存在本次页面生命周期内，离开作品详情页即随 composition 销毁）。
+     * 存的是"跳转之前所在的位置"，供「↶ 回到上次位置」使用，上限 20 条。
+     */
+    var pathHistory by remember { mutableStateOf<List<List<Track>>>(emptyList()) }
+
+    /**
+     * 切换当前目录。
+     *
+     * @param record 是否把"跳转前的位置"记入历史。点文件行进入子目录、点面包屑跳级都记；
+     *               「↶」回退本身不记，否则会来回弹。
+     *               目标与当前相同则直接忽略（不跳转、不入历史）。
+     */
+    fun updatePath(newPath: List<Track>, record: Boolean = true) {
+        if (newPath == currentPath) return
+        if (record) pathHistory = (pathHistory + listOf(currentPath)).takeLast(20)
         currentPath = newPath
         savedPathKey = PathKey.encode(rawTracks, newPath)
+    }
+
+    /**
+     * 「↶」：回到上次位置。
+     *
+     * 必须**先出栈**再跳转：否则栈顶那条记录会一直留着，
+     * 第二次点击时"目标 == 当前"被同路径守卫拦掉（表现为只能点一次），
+     * 且 `pathHistory` 永不为空（按钮一直不置灰）。
+     */
+    fun backToPreviousPath() {
+        val prev = pathHistory.lastOrNull() ?: return
+        pathHistory = pathHistory.dropLast(1)
+        updatePath(prev, record = false)
     }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -417,28 +454,35 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
 
                     item {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                            Text("文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            val breadcrumb = (listOf("根目录") + currentPath.map { it.title ?: "" }).joinToString(" / ")
-                            Text(breadcrumb, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-
-                    if (currentPath.isNotEmpty()) {
-                        item {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
-                            ) {
-                                Row(
-                                    Modifier.fillMaxWidth().clickable { updatePath(currentPath.dropLast(1)) }.padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(2.dp))
+                                IconButton(
+                                    onClick = { backToPreviousPath() },
+                                    enabled = pathHistory.isNotEmpty(),
+                                    modifier = Modifier.size(40.dp)
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("返回上一级", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Undo,
+                                        contentDescription = "回到上次位置",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (pathHistory.isNotEmpty()) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        }
+                                    )
                                 }
                             }
+                            // 「文件」与路径之间留出间距（40dp 的图标行本身已有约 10dp 视觉间隔）
+                            Spacer(Modifier.height(6.dp))
+                            // 无框文字面包屑：祖先级可点、当前级只给点击反馈不跳转。
+                            // 允许自然换行、不折叠、不截断（实测 96.8% 的目录名一行放得下）。
+                            PathBreadcrumb(
+                                path = currentPath,
+                                onJump = { target -> updatePath(target) }
+                            )
+                            Spacer(Modifier.height(14.dp))
                         }
                     }
 
@@ -585,6 +629,12 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     filterAction?.let { action ->
         FilterActionDialog(
             title = action.label,
+            // 第三项「收藏 / 取消收藏」：把当前标签/社团/声优加入收藏（收藏页里长按不带这一项）
+            isFavorite = favorites.contains(action.type, action.name),
+            onToggleFavorite = {
+                container.tagFavorites.toggle(action.type, action.name)
+                filterAction = null
+            },
             onDismiss = { filterAction = null },
             onInclude = {
                 SearchPreset.pending = SearchPreset.Pending(SearchFilter(action.type, action.name, action.label, false), false)
@@ -655,11 +705,12 @@ private fun collectSubtitleMap(nodes: List<Track>): Map<String, String> {
     return map
 }
 
-/** 音频的字幕候选文件名（vtt/srt 为文件名追加、lrc/srt 为扩展名替换）。 */
-private fun subtitleNamesFor(audioTitle: String): List<String> {
-    val base = baseName(audioTitle)
-    return listOf(audioTitle + ".vtt", audioTitle + ".srt", "$base.lrc", "$base.srt")
-}
+/**
+ * 音频的字幕候选文件名 —— 直接用 `util/Playable.kt` 里导出侧也共用的那一份实现，
+ * 避免"播放能匹配到、导出匹配不到"这类不一致。
+ */
+private fun subtitleNamesFor(audioTitle: String): List<String> =
+    io.github.zyakusen.tsukiyo.util.subtitleNamesFor(audioTitle)
 
 /** 在已下载文件中查找与音频匹配的本地字幕文件（同级目录优先，再跨目录回退）。 */
 private fun localSubtitleFor(audioTitle: String, folderPath: String, downloads: List<DownloadItem>): String? {
@@ -861,21 +912,8 @@ private fun AddToPlaylistDialog(playlists: List<Playlist>, onDismiss: () -> Unit
     )
 }
 
-@Composable
-private fun FilterActionDialog(title: String, onDismiss: () -> Unit, onInclude: () -> Unit, onExclude: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("筛选：$title") },
-        text = { Text("选择正选（仅含此项）还是反选（排除此项）") },
-        confirmButton = { TextButton(onClick = onInclude) { Text("正选") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onExclude) { Text("反选") }
-                TextButton(onClick = onDismiss) { Text("取消") }
-            }
-        }
-    )
-}
+// FilterActionDialog 已抽到 ui/components/FilterActionDialog.kt（多了「收藏 / 取消收藏」一项，
+// 收藏页的长按也要用同一个弹窗，所以做成公共组件）。
 
 @Composable
 private fun TextPreviewDialog(content: String, onDismiss: () -> Unit) {
@@ -895,38 +933,186 @@ private fun TextPreviewDialog(content: String, onDismiss: () -> Unit) {
 private fun ImagePreviewDialog(model: Any?, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var askSave by remember(model) { mutableStateOf(false) }
+    var saving by remember(model) { mutableStateOf(false) }
+    var retryKey by remember(model) { mutableStateOf(0) }
+
+    // 统一限制解码尺寸：竖屏手机里插图显示区域有限，按最长边 1080 解码足够清晰，
+    // 又能避免几千像素的大图解码占几十 MB 内存（原图实测常有 2-3MB）。
+    // retryKey 参与构造：点「重试」时换成新的请求，Coil 才会重新发起加载。
+    val request = remember(model, retryKey) {
+        ImageRequest.Builder(context)
+            .data(model)
+            .size(1080, 1080)
+            .scale(Scale.FIT)
+            .setParameter("retry", retryKey)
+            .build()
+    }
+    val painter = rememberAsyncImagePainter(request)
+    val state = painter.state
+    val imageLoading = state is AsyncImagePainter.State.Loading
+    val imageError = state is AsyncImagePainter.State.Error
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-            Box(Modifier.fillMaxWidth().padding(8.dp)) {
-                AsyncImage(
-                    model = model,
+            Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painter,
                     contentDescription = null,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pointerInput(model) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    scope.launch {
-                                        val name = "asmr_${System.currentTimeMillis()}.jpg"
-                                        val ok = when (model) {
-                                            is File -> saveImageFileToGallery(context, model, name)
-                                            is String -> saveImageToGallery(context, model, name)
-                                            else -> false
-                                        }
-                                        Toast.makeText(context, if (ok) "已保存到相册" else "保存失败", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
+                        // 预览区的稳定高度范围（加载中不会缩成一条细缝，也不会顶出屏幕）
+                        .heightIn(min = 220.dp, max = 520.dp)
+                        .pointerInput(model, saving) {
+                            // 长按改为「询问是否保存」，不再长按即存；保存过程中忽略再次长按
+                            detectTapGestures(onLongPress = { if (!saving) askSave = true })
                         }
                 )
+
+                if (imageError) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { retryKey++ }
+                    ) {
+                        Text("加载失败", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "点击重试",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // 预览加载与保存**共用同一个指示器**：两件事同时进行时也只转一个圈。
+                // 用固定尺寸的 Box 包住，避免被父约束拉伸成大圈。
+                if (saving || imageLoading) {
+                    Box(Modifier.size(28.dp)) {
+                        CircularProgressIndicator(Modifier.fillMaxSize(), strokeWidth = 3.dp)
+                    }
+                }
+
                 IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd)) {
                     Icon(Icons.Filled.Close, "关闭", tint = MaterialTheme.colorScheme.onSurface)
                 }
+
+                // 底部只留一行状态说明：保存中 > 加载中 > 空闲提示
+                val label = when {
+                    saving -> "正在保存…"
+                    imageLoading -> "图片加载中…"
+                    imageError -> null
+                    else -> "长按图片可保存到相册"
+                }
+                if (label != null) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (saving) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (askSave) {
+        AlertDialog(
+            onDismissRequest = { askSave = false },
+            title = { Text("保存到相册") },
+            text = { Text("要把这张图片保存到相册吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askSave = false
+                    if (saving) return@TextButton
+                    saving = true
+                    scope.launch {
+                        val name = galleryImageFileName(model)
+                        val ok = when (model) {
+                            is File -> saveImageFileToGallery(context, model, name)
+                            is String -> saveImageToGallery(context, model, name)
+                            else -> false
+                        }
+                        saving = false
+                        Toast.makeText(context, if (ok) "已保存到相册" else "保存失败", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { askSave = false }) { Text("取消") } }
+        )
+    }
+}
+
+/** 保存到相册的文件名：沿用原图扩展名（jpg/png/webp/gif/bmp），识别不出时回退 jpg。 */
+private fun galleryImageFileName(model: Any?): String {
+    val raw = when (model) {
+        is File -> model.name
+        is String -> model.substringBefore('?').substringAfterLast('/')
+        else -> ""
+    }
+    val ext = raw.substringAfterLast('.', "").lowercase()
+        .takeIf { it in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp") } ?: "jpg"
+    return "asmr_${System.currentTimeMillis()}.$ext"
+}
+
+/**
+ * 无框文字面包屑：`根目录 › 音声 › 無SE › wav`
+ *
+ * 设计要点（见与用户的讨论结论）：
+ *  * **不做成带外框的按钮排**：祖先级只是 `primary` 色的文字，点击只有默认的无界水波纹，无底色无边框。
+ *  * 祖先级点击 = 跳到该级；**当前级点击只给反馈，不切换、不记历史**。
+ *  * 允许自然换行、**不折叠、不截断** —— 实测 4277 个目录名里 96.8% 一行放得下，
+ *    需要 3 行的只有 0.51%，而那些恰恰是"声优名+完整标题"这种最该看全的名字。
+ *  * 分隔符 `›` 与它前面的层级放在**同一个 `Text`** 里（用 `buildAnnotatedString` 分别着色），
+ *    避免换行时行尾留下一个孤零零的 `›`。
+ *  * 点击跳级时**不调用任何滚动 API**：面包屑之上的内容高度不变，
+ *    因此它在屏幕上的位置保持不动，不会让眼睛跟丢（唯一例外是下方列表过短导致的滚动夹回）。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PathBreadcrumb(
+    path: List<Track>,
+    onJump: (List<Track>) -> Unit
+) {
+    // 直接构造（不 remember）：路径只有几级、每级一个 Pair，开销可忽略；
+    // 若用 remember(path) 则每次重组都要对 Track 做深度相等比较，反而更贵。
+    val crumbs: List<Pair<String, List<Track>>> =
+        listOf<Pair<String, List<Track>>>("根目录" to emptyList()) +
+            path.mapIndexed { i, t ->
+                ((t.title ?: "").ifBlank { "未命名" }) to path.take(i + 1)
+            }
+    val sepColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        crumbs.forEachIndexed { i, (label, target) ->
+            val isLast = i == crumbs.lastIndex
+            if (isLast) {
                 Text(
-                    "长按图片可保存到相册",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp)
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        // 先 clickable 再 padding：让 padding 也计入可点区域（触摸目标更大）
+                        // 当前级：仅点击反馈，不切换目录、不产生历史
+                        .clickable { }
+                        .padding(vertical = 4.dp)
+                )
+            } else {
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(label) }
+                        withStyle(SpanStyle(color = sepColor)) { append(" ›") }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .clickable { onJump(target) }
+                        .padding(vertical = 4.dp)
                 )
             }
         }

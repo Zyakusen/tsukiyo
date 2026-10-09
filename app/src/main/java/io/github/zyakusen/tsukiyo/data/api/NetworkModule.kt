@@ -37,6 +37,16 @@ object NetworkModule {
     var downloadClient: OkHttpClient = buildOkHttp(null)
         private set
 
+    /**
+     * 图片（Coil）专用客户端：与 API 请求一样带上浏览器 UA / Referer / Origin，并应用代理设置。
+     *
+     * 之前 Coil 用的是它自己新建的默认客户端 —— **既不走设置里的代理，也不带这些请求头**，
+     * 所以手机上开了系统代理之后图片会加载失败或极慢（API 走代理、图片直连）。
+     */
+    @Volatile
+    var mediaClient: OkHttpClient = buildMediaOkHttp(null)
+        private set
+
     fun build(baseUrl: String, authManager: AuthManager, settings: SettingsState? = null, cacheDir: File? = null, debug: Boolean = false): AsmrApi {
         val builder = baseOkHttpBuilder(settings)
             .addInterceptor { chain ->
@@ -88,6 +98,7 @@ object NetworkModule {
 
     fun rebuildDownloadClient(settings: SettingsState?) {
         downloadClient = buildOkHttp(settings)
+        mediaClient = buildMediaOkHttp(settings)
     }
 
     /** 共享 Gson（含 List 类型容错适配），供网络层与本地缓存复用。 */
@@ -119,6 +130,20 @@ object NetworkModule {
             .writeTimeout(120, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
         applyProxy(builder, settings)
+        return builder.build()
+    }
+
+    /** 图片加载用：代理 + 浏览器请求头（CDN 与 API 同一套伪装）。 */
+    private fun buildMediaOkHttp(settings: SettingsState?): OkHttpClient {
+        val builder = baseOkHttpBuilder(settings)
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", "https://www.asmr.one/")
+                    .header("Origin", "https://www.asmr.one")
+                    .build()
+                chain.proceed(request)
+            }
         return builder.build()
     }
 

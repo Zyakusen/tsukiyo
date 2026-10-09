@@ -1,6 +1,6 @@
 package io.github.zyakusen.tsukiyo.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,8 @@ fun HistoryScreen(navController: NavHostController) {
     val history by container.historyStore.observe().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var showClearConfirm by remember { mutableStateOf(false) }
+    // 长按某条历史 → 询问是否只删除这一条
+    var deleteTarget by remember { mutableStateOf<HistoryItem?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(
@@ -72,9 +75,12 @@ fun HistoryScreen(navController: NavHostController) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(history, key = { it.workId }) { item ->
-                    HistoryCard(item, blurNsfw = !settings.showNsfw) {
-                        navController.navigate(Routes.work(item.workId))
-                    }
+                    HistoryCard(
+                        item = item,
+                        blurNsfw = !settings.showNsfw,
+                        onClick = { navController.navigate(Routes.work(item.workId)) },
+                        onLongClick = { deleteTarget = item }
+                    )
                 }
             }
         }
@@ -94,14 +100,40 @@ fun HistoryScreen(navController: NavHostController) {
             dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("取消") } }
         )
     }
+
+    deleteTarget?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除这条历史") },
+            text = { Text("要把「${item.title}」从浏览历史里删除吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    scope.launch { container.historyStore.delete(item.workId) }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable
-private fun HistoryCard(item: HistoryItem, blurNsfw: Boolean, onClick: () -> Unit) {
+private fun HistoryCard(
+    item: HistoryItem,
+    blurNsfw: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     Column(
         Modifier
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            // 用 pointerInput 同时接点击与长按（与 TagChip 同一套写法，避免 combinedClickable 的实验 API）
+            .pointerInput(item.workId, onClick, onLongClick) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { onLongClick() }
+                )
+            }
     ) {
         CoverImage(
             url = item.coverUrl,

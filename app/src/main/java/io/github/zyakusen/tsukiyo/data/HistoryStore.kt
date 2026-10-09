@@ -29,6 +29,9 @@ class HistoryStore(private val dao: HistoryDao) {
 
     suspend fun clear() = dao.clear()
 
+    /** 删除单个作品的历史记录。 */
+    suspend fun delete(workId: Long) = dao.deleteByWork(workId)
+
     companion object {
         const val MAX_ENTRIES = 200
     }

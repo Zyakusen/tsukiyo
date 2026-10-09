@@ -53,6 +53,7 @@ import io.github.zyakusen.tsukiyo.ui.screens.PlaylistWorksScreen
 import io.github.zyakusen.tsukiyo.ui.screens.PlaylistsScreen
 import io.github.zyakusen.tsukiyo.ui.screens.SearchScreen
 import io.github.zyakusen.tsukiyo.ui.screens.SettingsScreen
+import io.github.zyakusen.tsukiyo.ui.screens.TagFavoritesScreen
 import io.github.zyakusen.tsukiyo.ui.screens.TagWorksScreen
 import io.github.zyakusen.tsukiyo.ui.screens.VaWorksScreen
 import io.github.zyakusen.tsukiyo.ui.screens.WorkDetailScreen
@@ -79,6 +80,9 @@ object Routes {
 
     const val PLAYLIST = "playlist/{playlistId}"
     fun playlist(id: String) = "playlist/$id"
+
+    /** 标签收藏（标签 / 社团 / 声优）。注意与 [FAVORITES]（我的收藏：评分/标记的作品）不是一回事。 */
+    const val TAG_FAVORITES = "tag_favorites"
 
     const val PLAYER = "player"
     const val PLAYLISTS = "playlists"
@@ -190,6 +194,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             composable(Routes.SEARCH) { SearchScreen(navController) }
             composable(Routes.HISTORY) { HistoryScreen(navController) }
             composable(Routes.FAVORITES) { FavoritesScreen(navController) }
+            composable(Routes.TAG_FAVORITES) { TagFavoritesScreen(navController) }
             composable(Routes.DOWNLOADS) { DownloadsScreen(navController) }
 
             composable(
