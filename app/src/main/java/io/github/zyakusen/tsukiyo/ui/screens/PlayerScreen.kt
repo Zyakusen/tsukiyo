@@ -148,8 +148,8 @@ fun PlayerScreen(navController: NavHostController) {
                         state.currentSubtitle ?: "",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        // 不限制行数：字幕块底边贴着下面音频名，行数变多就往**上**长（可以盖住封面），
+                        // 封面本身位置不变（始终在功能按钮与音频名的中点）。
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }

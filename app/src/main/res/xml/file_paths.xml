@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-files-path name="downloads" path="asmr_downloads/" />
+    <!-- 应用内更新下载的安装包（cacheDir/updates/），交给系统安装器读取 -->
+    <cache-path name="updates" path="updates/" />
 </paths>

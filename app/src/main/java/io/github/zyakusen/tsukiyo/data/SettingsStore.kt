@@ -41,7 +41,13 @@ class SettingsStore(context: Context) {
             return SE_MODE_WITH
         }
 
-        val AUDIO_TYPES = listOf("flac", "wav", "opus", "m4a", "aac", "mp3")
+        /**
+         * 音频类型偏好顺序的可选集合，**顺序取自 asmr.one 网站设置的默认值**
+         * （`audioTypePreference: ["mp3","flac","wav","opus","m4a","aac"]`），
+         * 这样默认行为与网页端一致：优先 mp3（体积小、起播快），再考虑无损。
+         * 与网站的另一处一致：网站上同一扩展名内是**按码率从高到低**挑（我们由智能路径的格式比较承担）。
+         */
+        val AUDIO_TYPES = listOf("mp3", "flac", "wav", "opus", "m4a", "aac")
         val DEFAULT_AUDIO_ORDER = AUDIO_TYPES.joinToString(",")
     }
 
@@ -104,15 +110,16 @@ class SettingsStore(context: Context) {
             _state.value = _state.value.copy(showRecommendAtHome = value)
         }
 
+    // 快进 30s / 后退 5s：与 asmr.one 网站设置默认值一致（forwardSeekTime=30、rewindSeekTime=5）
     var forwardSeekSeconds: Int
-        get() = prefs.getInt("forwardSeekSeconds", 15)
+        get() = prefs.getInt("forwardSeekSeconds", 30)
         set(value) {
             prefs.edit().putInt("forwardSeekSeconds", value).apply()
             _state.value = _state.value.copy(forwardSeekSeconds = value)
         }
 
     var rewindSeekSeconds: Int
-        get() = prefs.getInt("rewindSeekSeconds", 15)
+        get() = prefs.getInt("rewindSeekSeconds", 5)
         set(value) {
             prefs.edit().putInt("rewindSeekSeconds", value).apply()
             _state.value = _state.value.copy(rewindSeekSeconds = value)
@@ -215,8 +222,8 @@ data class SettingsState(
     val tagLanguage: String = "zh-cn",
     val showPopularAtHome: Boolean = true,
     val showRecommendAtHome: Boolean = true,
-    val forwardSeekSeconds: Int = 15,
-    val rewindSeekSeconds: Int = 15,
+    val forwardSeekSeconds: Int = 30,
+    val rewindSeekSeconds: Int = 5,
     val audioTypeOrder: List<String> = SettingsStore.AUDIO_TYPES,
     val smartPathEnabled: Boolean = true,
     val seMode: String = SettingsStore.SE_MODE_WITH,
@@ -242,8 +249,8 @@ data class SettingsState(
                 tagLanguage = prefs.getString("tagLanguage", "zh-cn") ?: "zh-cn",
                 showPopularAtHome = prefs.getBoolean("showPopularAtHome", true),
                 showRecommendAtHome = prefs.getBoolean("showRecommendAtHome", true),
-                forwardSeekSeconds = prefs.getInt("forwardSeekSeconds", 15),
-                rewindSeekSeconds = prefs.getInt("rewindSeekSeconds", 15),
+                forwardSeekSeconds = prefs.getInt("forwardSeekSeconds", 30),
+                rewindSeekSeconds = prefs.getInt("rewindSeekSeconds", 5),
                 audioTypeOrder = order,
                 smartPathEnabled = prefs.getBoolean("smartPathEnabled", true),
                 seMode = SettingsStore.readSeMode(prefs),

@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,7 +80,16 @@ fun FavoritesScreen(navController: NavHostController) {
     val auth by container.authManager.state.collectAsState()
     val settings by container.settingsStore.state.collectAsState()
 
-    var filter by remember { mutableStateOf<String?>(null) }
+    /**
+     * 当前分类。用 [rememberSaveable] 而不是 remember 是要这个语义：
+     *  * 进作品详情、再从详情里点推荐作品 / 切换语言版本（都是 **navigate 压栈**）——
+     *    收藏页条目还在返回栈里，返回时分类被恢复，**连续多层跳转再一层层回来也一样保持**；
+     *  * 详情页点标签跳搜索页走的是 `navigateToSearch()`（popBackStack 到搜索页），
+     *    收藏页条目被**弹出**、保存的状态一并销毁，下次进来自然回到「全部」。
+     * 空串表示「全部」（progressOptions 的取值里没有空串，不会撞车）。
+     */
+    var filterName by rememberSaveable { mutableStateOf("") }
+    val filter: String? = filterName.ifBlank { null }
     val scope = rememberCoroutineScope()
 
     val paging = remember(filter, auth.isRealUser, settings.subtitlesOnly) {
@@ -120,10 +130,10 @@ fun FavoritesScreen(navController: NavHostController) {
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item { SelectableChip("全部", filter == null) { filter = null } }
-            item { SelectableChip("评价", filter == RATED_FILTER) { filter = RATED_FILTER } }
+            item { SelectableChip("全部", filter == null) { filterName = "" } }
+            item { SelectableChip("评价", filter == RATED_FILTER) { filterName = RATED_FILTER } }
             items(progressOptions) { p ->
-                SelectableChip(p.label, filter == p.value) { filter = p.value }
+                SelectableChip(p.label, filter == p.value) { filterName = p.value }
             }
         }
 

@@ -29,6 +29,9 @@ class AppContainer(context: Context) {
     /** 收藏的标签 / 社团 / 声优。 */
     val tagFavorites = TagFavoritesStore(context)
 
+    /** 首页「热门 / 推荐」两行的本地缓存（首帧先占位，请求回来再替换）。 */
+    val homeFeedCache = HomeFeedCache(context)
+
     @Volatile
     lateinit var api: AsmrApi
 

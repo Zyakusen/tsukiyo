@@ -1,13 +1,19 @@
 package io.github.zyakusen.tsukiyo.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -16,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -23,6 +30,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -94,7 +103,7 @@ fun BrowseScreen(navController: NavHostController) {
         TopBar(
             title = "Tsukiyo",
             actions = {
-                IconButton(onClick = { vm.refresh(); refreshFlag++ }) {
+                IconButton(onClick = { vm.refreshCurrentPage(); refreshFlag++ }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                 }
                 IconButton(onClick = { navController.navigate(Routes.HISTORY) }) {
@@ -164,23 +173,29 @@ fun BrowseScreen(navController: NavHostController) {
             if (vm.currentPage == 1) {
                 // 给顶部行加稳定 key：即使这两行出现/消失，Compose 也能按 key 重新锚定首个可见项，
                 // 而不是退回"绝对下标"导致位置整体错位。
-                if (settings.showPopularAtHome && vm.popularWorks.isNotEmpty()) {
+                if (settings.showPopularAtHome) {
                     item(key = "home-popular", span = { GridItemSpan(2) }) {
                         HorizontalWorkRow(
                             title = "热门作品",
                             works = vm.popularWorks,
                             blurNsfw = !settings.showNsfw,
+                            loading = vm.popularLoading,
+                            error = vm.popularError,
+                            onRetry = { vm.loadPopular(force = true) },
                             onClick = { work -> work.id?.let { navController.navigate(Routes.work(it)) } }
                         )
                     }
                 }
 
-                if (settings.showRecommendAtHome && auth.isRealUser && vm.recommendWorks.isNotEmpty()) {
+                if (settings.showRecommendAtHome && auth.isRealUser) {
                     item(key = "home-recommend", span = { GridItemSpan(2) }) {
                         HorizontalWorkRow(
                             title = "推荐作品",
                             works = vm.recommendWorks,
                             blurNsfw = !settings.showNsfw,
+                            loading = vm.recommendLoading,
+                            error = vm.recommendError,
+                            onRetry = { vm.loadRecommend(enabled = true, force = true) },
                             onClick = { work -> work.id?.let { navController.navigate(Routes.work(it)) } }
                         )
                     }
@@ -194,8 +209,12 @@ fun BrowseScreen(navController: NavHostController) {
             if (vm.loading && vm.items.isEmpty()) {
                 item(key = "home-loading", span = { GridItemSpan(2) }) { LoadingIndicator() }
             }
-            if (vm.error != null && vm.items.isEmpty()) {
-                item(key = "home-error", span = { GridItemSpan(2) }) { ErrorState(vm.error) { vm.refresh() } }
+            // 只要出错就提示，不再要求"列表为空"才显示：
+            // 以前在第 N 页翻页失败时会静默停在旧列表、点重试还跳回第 1 页（见 BrowseViewModel.failedPage）。
+            vm.error?.let { err ->
+                item(key = "home-error", span = { GridItemSpan(2) }) {
+                    ErrorState("第 ${vm.failedPage ?: vm.currentPage} 页加载失败：$err") { vm.retry() }
+                }
             }
 
             if (vm.items.isNotEmpty() && vm.totalPages > 1) {
@@ -255,26 +274,94 @@ private fun PageJumpDialog(current: Int, total: Int, onDismiss: () -> Unit, onJu
     )
 }
 
+/**
+ * 首页顶部的横向作品行（热门 / 推荐）。
+ *
+ * 关键点：**只要开关打开就一直占位**，不再"没数据就不显示"——
+ * 以前两行后到会让下面的作品整体下移，用户要上滑才知道顶部加载好了。
+ *  * 有数据（含上次缓存）→ 直接显示，请求回来替换；
+ *  * 没数据且加载中 → 灰色骨架卡片占位（告诉用户"这里有东西"）；
+ *  * 加载失败 → 一行可点击的「加载失败，点击重试」。
+ */
 @Composable
 private fun HorizontalWorkRow(
     title: String,
     works: List<Work>,
     blurNsfw: Boolean,
+    loading: Boolean = false,
+    error: String? = null,
+    onRetry: (() -> Unit)? = null,
     onClick: (Work) -> Unit
 ) {
     Column {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(works, key = { it.id ?: 0L }) { work ->
-                Box(Modifier.width(128.dp)) {
-                    WorkCard(work, blurNsfw = blurNsfw) { onClick(work) }
-                }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+            if (loading && works.isEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
             }
         }
+        when {
+            works.isNotEmpty() -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(works, key = { it.id ?: 0L }) { work ->
+                    Box(Modifier.width(128.dp)) {
+                        WorkCard(work, blurNsfw = blurNsfw) { onClick(work) }
+                    }
+                }
+            }
+
+            loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                repeat(3) { PlaceholderCard() }
+            }
+
+            error != null -> Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = onRetry != null) { onRetry?.invoke() }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.Refresh, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "加载失败，点击重试",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            else -> Text(
+                "暂无内容",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        }
+    }
+}
+
+/** 骨架卡片：尺寸尽量贴近 [WorkCard]，避免占位与真实内容高度差太多。 */
+@Composable
+private fun PlaceholderCard() {
+    val grey = MaterialTheme.colorScheme.surfaceVariant
+    Column(Modifier.width(128.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(grey)
+        )
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth(0.92f).height(12.dp).clip(RoundedCornerShape(4.dp)).background(grey))
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth(0.6f).height(12.dp).clip(RoundedCornerShape(4.dp)).background(grey))
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(0.45f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(grey))
     }
 }

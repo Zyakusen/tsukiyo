@@ -40,8 +40,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -49,14 +51,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import io.github.zyakusen.tsukiyo.data.model.Work
 import io.github.zyakusen.tsukiyo.player.PlayerManager
 import io.github.zyakusen.tsukiyo.util.PagingState
 import io.github.zyakusen.tsukiyo.util.formatCount
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -67,6 +72,20 @@ fun CoverImage(
     blur: Boolean = false,
     contentScale: ContentScale = ContentScale.Crop
 ) {
+    val context = LocalContext.current
+    // 封面来自 CDN 原图（0.44–2.7MB/张，无缩略图接口），一页 40 张要排队，偶发超时/限流很常见；
+    // 而**失败的请求不会被 Coil 缓存**，所以"切回这一页还是刚才那几张没出来、得等一会儿"。
+    // 这里对失败自动重试最多 2 次（间隔 1.2s）：必须换一个请求（加参数）Coil 才会真的重发，
+    // 直接重组是没用的（同样的 model 会命中"已失败"状态）。
+    var retryKey by remember(url) { mutableStateOf(0) }
+    var failed by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(url, failed, retryKey) {
+        if (failed && retryKey < 2) {
+            delay(1200)
+            failed = false
+            retryKey++
+        }
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -74,12 +93,16 @@ fun CoverImage(
     ) {
         if (url != null) {
             AsyncImage(
-                model = url,
+                model = if (retryKey == 0) url else ImageRequest.Builder(context)
+                    .data(url)
+                    .setParameter("coverRetry", retryKey)
+                    .build(),
                 contentDescription = contentDescription,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (blur) Modifier.blur(20.dp) else Modifier),
-                contentScale = contentScale
+                contentScale = contentScale,
+                onError = { failed = true }
             )
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
