@@ -63,6 +63,10 @@ import io.github.zyakusen.tsukiyo.util.PagingState
 import io.github.zyakusen.tsukiyo.util.formatCount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
+
+/** 多声优的分隔符（卡片上放不下时会从尾部省略，与社团同一套省略方式）。 */
+const val VA_SEPARATOR = " / "
 
 @Composable
 fun CoverImage(
@@ -141,8 +145,28 @@ fun RatingBar(rating: Double, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 作品卡片。信息排布（三行）：
+ * ```
+ * 封面
+ * 标题（最多两行）
+ * 社团 ………………… 4.5(86)      ← 评分（一位小数 + 评论人数）靠右；社团占满剩余，长了就省略
+ * 声优 / 声优 ……… DL 37.4万    ← 下载数靠右；声优靠左，长了就省略
+ * ```
+ * 右侧两块都只占自身宽度，所以它们短的时候，空出来的位置会让给左边的社团/声优。
+ *
+ * @param showRating 收藏页/历史页不显示平均评分
+ * @param showDownload 收藏页/历史页不显示下载数
+ */
 @Composable
-fun WorkCard(work: Work, blurNsfw: Boolean = false, badge: String? = null, onClick: () -> Unit) {
+fun WorkCard(
+    work: Work,
+    blurNsfw: Boolean = false,
+    badge: String? = null,
+    showRating: Boolean = true,
+    showDownload: Boolean = true,
+    onClick: () -> Unit
+) {
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
@@ -191,17 +215,47 @@ fun WorkCard(work: Work, blurNsfw: Boolean = false, badge: String? = null, onCli
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            if (work.rateCount != null && work.rateCount > 0) {
+            // 评论数为 0 也显示 0.0(0)：与详情页一致，避免"这一格空了"让人猜是不是没加载出来
+            val ratingText = if (showRating) {
+                String.format(Locale.ROOT, "%.1f(%d)", work.rateAverage2dp ?: 0.0, work.rateCount ?: 0)
+            } else null
+            if (ratingText != null) {
                 Spacer(Modifier.width(4.dp))
-                RatingBar(work.rateAverage2dp ?: 0.0)
+                Text(
+                    text = ratingText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
             }
         }
-        if (work.dlCount != null && work.dlCount > 0) {
-            Text(
-                text = "DL ${formatCount(work.dlCount)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        val vaText = work.vas?.mapNotNull { it.name }?.filter { it.isNotBlank() }?.joinToString(VA_SEPARATOR)
+        if (vaText != null || showDownload) {
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (vaText != null) {
+                    Text(
+                        text = vaText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (showDownload) {
+                    // 下载数为 0 也要显示；formatCount 在 ≥10000 时用「万」，最长 4 个字符，宽度有界
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "DL ${formatCount(work.dlCount)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }

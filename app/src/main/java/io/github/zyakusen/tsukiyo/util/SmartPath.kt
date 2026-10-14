@@ -37,10 +37,24 @@ data class DirCandidate(
     val depth: Int,
     val order: Int,
     val isMain: Boolean,
-    val isNonMain: Boolean
+    val isNonMain: Boolean,
+    /**
+     * 只统计**正片文件**的扩展名（文件名未命中非正片词表的那批）。
+     *
+     * 用途：格式判定不该被"这个目录里放了几个赠品 mp3"带偏 ——
+     * 例：RJ01588205 根目录是 WAV 正篇 + 5 个【赠品】mp3，以前根目录会被当成"mp3 目录"，
+     * 于是与真正的 mp3 目录（简体中文）在格式阶段打平，最后靠 depth（根目录最浅）赢下，
+     * 结果用户进了一个混装的大目录。改用正片文件的扩展名后，根目录是 wav、简体中文是 mp3，
+     * 在「mp3 优先」下就会正确进入简体中文。
+     */
+    val mainFormats: List<String> = emptyList()
 ) {
     val label: String
         get() = if (path.isEmpty()) "(ROOT)" else path.joinToString("/") { it.title ?: "" }
+
+    /** 格式判定的取值来源：优先用正片文件，一个正片文件都没有时退回全部文件。 */
+    val formatSource: List<String>
+        get() = mainFormats.ifEmpty { formats }
 }
 
 private val DEFAULT_ORDER = listOf("flac", "wav", "opus", "m4a", "aac", "mp3")
@@ -96,7 +110,10 @@ fun collectAudioDirs(nodes: List<Track>): List<DirCandidate> {
             isMain = path.any { SeNames.isMainName(it.title) },
             // 目录名逐段裁决；或"目录内所有音频文件名都是非正片" → 整体视为非正片
             isNonMain = path.any { SeNames.isSegmentNonMain(it.title) } ||
-                (direct.isNotEmpty() && direct.all { SeNames.isNonMainName(it.title) })
+                (direct.isNotEmpty() && direct.all { SeNames.isNonMainName(it.title) }),
+            // F1：格式判定只看正片文件（见 mainFormats 的注释）
+            mainFormats = direct.filterNot { SeNames.isNonMainName(it.title) }
+                .mapNotNull { MediaTypes.extOf(it.title).ifEmpty { null } }
         )
     }
 
@@ -127,9 +144,9 @@ private fun hintTier(name: String?): Int? {
     return null
 }
 
-/** 格式优先级：主证据=目录内音频文件扩展名；判不出才用目录名音质提示。 */
+/** 格式优先级：主证据=目录内**正片文件**的扩展名（见 DirCandidate.mainFormats）；判不出才用目录名音质提示。 */
 private fun formatRank(c: DirCandidate, order: List<String>): Int? {
-    val ranks = c.formats.mapNotNull { order.indexOf(it).takeIf { i -> i >= 0 } }
+    val ranks = c.formatSource.mapNotNull { order.indexOf(it).takeIf { i -> i >= 0 } }
     if (ranks.isNotEmpty()) return ranks.min()
     for (seg in c.path.asReversed()) {
         when (hintTier(seg.title)) {

@@ -43,25 +43,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import io.github.zyakusen.tsukiyo.data.SettingsStore
-import io.github.zyakusen.tsukiyo.data.api.NetworkModule
 import io.github.zyakusen.tsukiyo.ui.LocalContainer
-import io.github.zyakusen.tsukiyo.ui.components.MarkdownText
 import io.github.zyakusen.tsukiyo.ui.components.TopBar
-import io.github.zyakusen.tsukiyo.util.AppUpdater
-import kotlinx.coroutines.Dispatchers
+import io.github.zyakusen.tsukiyo.ui.components.UpdateDialog
+import io.github.zyakusen.tsukiyo.util.UpdateInfo
+import io.github.zyakusen.tsukiyo.util.compareVersions
+import io.github.zyakusen.tsukiyo.util.currentVersionName
+import io.github.zyakusen.tsukiyo.util.fetchLatestRelease
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
-import org.json.JSONObject
-import java.io.File
-
-/** 检查更新拿到的信息：版本号、发行说明、APK 直链（拿不到 APK 时退回发行页）。 */
-private data class UpdateInfo(
-    val version: String,
-    val notes: String,
-    val apkUrl: String,
-    val htmlUrl: String
-)
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
@@ -75,10 +64,6 @@ fun SettingsScreen(navController: NavHostController) {
     var showProxy by remember { mutableStateOf(false) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
-    // 应用内更新：下载中 / 进度 / 已下载好的安装包
-    var updating by remember { mutableStateOf(false) }
-    var updateProgress by remember { mutableStateOf(0f) }
-    var downloadedApk by remember { mutableStateOf<File?>(null) }
 
     val exportDirLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -95,53 +80,16 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    val currentVersion = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1.0.0"
-    }
+    val currentVersion = remember { currentVersionName(context) }
 
     fun checkUpdate() {
         scope.launch {
             checkingUpdate = true
-            val info = withContext(Dispatchers.IO) {
-                runCatching {
-                    val req = Request.Builder()
-                        .url("https://api.github.com/repos/Zyakusen/tsukiyo/releases/latest")
-                        .header("User-Agent", "tsukiyo")
-                        .build()
-                    NetworkModule.downloadClient.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) null else {
-                            val json = JSONObject(resp.body?.string() ?: "")
-                            val tag = json.optString("tag_name").removePrefix("v")
-                            if (tag.isBlank()) null else {
-                                // Release 里的 APK 资产直链（应用内下载用）
-                                var apk = ""
-                                val assets = json.optJSONArray("assets")
-                                if (assets != null) {
-                                    for (i in 0 until assets.length()) {
-                                        val a = assets.getJSONObject(i)
-                                        if (a.optString("name").endsWith(".apk", true)) {
-                                            apk = a.optString("browser_download_url")
-                                            break
-                                        }
-                                    }
-                                }
-                                UpdateInfo(
-                                    version = tag,
-                                    notes = json.optString("body"),
-                                    apkUrl = apk,
-                                    htmlUrl = json.optString("html_url")
-                                )
-                            }
-                        }
-                    }
-                }.getOrNull()
-            }
+            val info = fetchLatestRelease()
             checkingUpdate = false
             if (info == null) {
                 Toast.makeText(context, "检查更新失败", Toast.LENGTH_SHORT).show()
             } else if (compareVersions(info.version, currentVersion) > 0) {
-                downloadedApk = null
-                updateProgress = 0f
                 updateInfo = info
             } else {
                 Toast.makeText(context, "已是最新版", Toast.LENGTH_SHORT).show()
@@ -450,92 +398,9 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
+    // 更新弹窗与启动时自动检查共用同一个组件（设置页里手动检查不给「不再提示」）
     updateInfo?.let { info ->
-        // 下载后先尝试直接装机；系统未授权「安装未知应用」时引导去授权，回来再点「安装」即可（包已下载好）
-        fun installOrAsk() {
-            val apk = downloadedApk ?: return
-            if (AppUpdater.canInstall(context)) {
-                if (AppUpdater.install(context, apk)) {
-                    updateInfo = null
-                    downloadedApk = null
-                } else {
-                    Toast.makeText(context, "无法调起安装器", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(context, "请先允许「安装未知应用」", Toast.LENGTH_LONG).show()
-                AppUpdater.openInstallPermission(context)
-            }
-        }
-
-        AlertDialog(
-            onDismissRequest = { if (!updating) { updateInfo = null; downloadedApk = null } },
-            title = { Text("发现新版本 v${info.version}") },
-            text = {
-                Column {
-                    when {
-                        updating -> {
-                            Text("正在下载安装包… ${(updateProgress * 100).toInt()}%")
-                            Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { updateProgress },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        downloadedApk != null -> Text("安装包已下载完成，点「安装」继续。")
-                        info.notes.isNotBlank() -> MarkdownText(
-                            // GitHub Release 的说明是 Markdown 文本（不是文件），这里渲染它而不是显示源码
-                            markdown = info.notes,
-                            modifier = Modifier
-                                .heightIn(max = 260.dp)
-                                .verticalScroll(rememberScrollState())
-                        )
-                        else -> Text("最新版本：v${info.version}")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !updating,
-                    onClick = {
-                        when {
-                            downloadedApk != null -> installOrAsk()
-                            // 兜底：Release 里没有 APK 资产时仍然跳发行页
-                            info.apkUrl.isBlank() -> {
-                                updateInfo = null
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl))) }
-                            }
-                            else -> scope.launch {
-                                updating = true
-                                updateProgress = 0f
-                                val f = AppUpdater.download(context, info.apkUrl, info.version) { updateProgress = it }
-                                updating = false
-                                if (f == null) {
-                                    Toast.makeText(context, "下载失败，请稍后重试", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    downloadedApk = f
-                                    installOrAsk()
-                                }
-                            }
-                        }
-                    }
-                ) { Text(if (downloadedApk != null) "安装" else "下载并安装") }
-            },
-            dismissButton = {
-                Row {
-                    // 网络下不动 GitHub 时的退路：仍然可以用浏览器打开发行页
-                    if (info.htmlUrl.isNotBlank()) {
-                        TextButton(enabled = !updating, onClick = {
-                            updateInfo = null
-                            downloadedApk = null
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl))) }
-                        }) { Text("浏览器打开") }
-                    }
-                    TextButton(enabled = !updating, onClick = { updateInfo = null; downloadedApk = null }) {
-                        Text("稍后")
-                    }
-                }
-            }
-        )
+        UpdateDialog(info = info, onDismiss = { updateInfo = null })
     }
 }
 
@@ -630,19 +495,6 @@ private fun SettingRow(label: String, content: @Composable () -> Unit) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         content()
     }
-}
-
-/** 按「主.次.修订」逐段数值比较，a > b 返回正数、相等返回 0、小于返回负数。 */
-private fun compareVersions(a: String, b: String): Int {
-    // 每段只取开头的数字，保证 "1.3.1-beta" 也能正确比出 1.3.1
-    val pa = a.split('.').map { it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
-    val pb = b.split('.').map { it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
-    for (i in 0 until maxOf(pa.size, pb.size)) {
-        val x = pa.getOrElse(i) { 0 }
-        val y = pb.getOrElse(i) { 0 }
-        if (x != y) return x.compareTo(y)
-    }
-    return 0
 }
 
 /** 从 SAF 目录 URI 解析出可读的路径显示（如 primary:Download/ASMR → Download/ASMR）。 */

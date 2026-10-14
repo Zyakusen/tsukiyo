@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
@@ -43,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -76,6 +80,7 @@ fun SearchScreen(navController: NavHostController) {
     // 长按筛选 chip → 询问是否收藏（只对标签/社团/声优有效）
     var favoriteTarget by remember { mutableStateOf<SearchFilter?>(null) }
     val favorites by container.tagFavorites.state.collectAsState()
+    val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(Unit) {
         vm.applyPendingPreset()
@@ -108,6 +113,12 @@ fun SearchScreen(navController: NavHostController) {
                     IconButton(onClick = { vm.clearSearch() }) { Icon(Icons.Filled.Close, "清除") }
                 }
             },
+            // 回车即搜索：键盘右下角变成「搜索」键，按下就提交并收起键盘
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = {
+                vm.commitSearch()
+                keyboard?.hide()
+            }),
             singleLine = true,
             shape = MaterialTheme.shapes.large
         )

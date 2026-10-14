@@ -13,7 +13,7 @@ import io.github.zyakusen.tsukiyo.data.entity.DownloadItem
 import io.github.zyakusen.tsukiyo.data.entity.HistoryItem
 import io.github.zyakusen.tsukiyo.data.entity.WorkReview
 
-@Database(entities = [DownloadItem::class, WorkReview::class, HistoryItem::class], version = 5, exportSchema = false)
+@Database(entities = [DownloadItem::class, WorkReview::class, HistoryItem::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun reviewDao(): ReviewDao
@@ -63,13 +63,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 历史卡片要显示声优；老记录留空，等重新访问该作品时写入
+                db.execSQL("ALTER TABLE `history` ADD COLUMN `vas` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "asmr.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
             }
     }
 }

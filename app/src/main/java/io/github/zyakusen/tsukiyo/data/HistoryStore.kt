@@ -21,7 +21,9 @@ class HistoryStore(private val dao: HistoryDao) {
                 circleName = work.circleName ?: "",
                 coverUrl = work.coverUrl,
                 nsfw = work.nsfw == true,
-                viewedAt = System.currentTimeMillis()
+                viewedAt = System.currentTimeMillis(),
+                vas = work.vas?.mapNotNull { it.name }?.filter { it.isNotBlank() }
+                    ?.joinToString(io.github.zyakusen.tsukiyo.ui.components.VA_SEPARATOR) ?: ""
             )
         )
         dao.trim(MAX_ENTRIES)

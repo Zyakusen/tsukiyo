@@ -161,8 +161,11 @@ fun DownloadsScreen(navController: NavHostController) {
             durationMs = item.duration,
             subtitleUrl = subtitleFile?.let { Uri.fromFile(it).toString() }
         )
+        // 与作品详情页一致：没有正在播放的内容（或暂停中）才自动跳播放详情页，正在播放时只切歌
+        val idle = io.github.zyakusen.tsukiyo.player.PlayerManager.uiState.value
+            .let { it.currentTrack == null || !it.isPlaying }
         PlayerManager.playQueue(context, listOf(track), 0, "high")
-        navController.navigate(io.github.zyakusen.tsukiyo.ui.navigation.Routes.PLAYER)
+        if (idle) navController.navigate(io.github.zyakusen.tsukiyo.ui.navigation.Routes.PLAYER)
     }
 
     val selected = selectedWork

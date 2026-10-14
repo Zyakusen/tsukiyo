@@ -141,7 +141,14 @@ fun FavoritesScreen(navController: NavHostController) {
             !auth.isRealUser -> EmptyState("请先登录以查看")
             paging.items.isEmpty() && !paging.refreshing -> EmptyState("暂无收藏，去标记进度或评分吧")
             else -> PagedGrid(state = paging, key = { it.id ?: 0L }) { work ->
-                WorkCard(work, blurNsfw = !settings.showNsfw, badge = favoriteBadge(work)) {
+                // 收藏页：不显示平均评分与下载数（角标里的"进度 + 我自己的评分"保留）
+                WorkCard(
+                    work,
+                    blurNsfw = !settings.showNsfw,
+                    badge = favoriteBadge(work),
+                    showRating = false,
+                    showDownload = false
+                ) {
                     work.id?.let { navController.navigate(Routes.work(it)) }
                 }
             }

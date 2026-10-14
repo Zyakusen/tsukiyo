@@ -294,7 +294,11 @@ fun WorkDetailScreen(workId: Long, navController: NavHostController) {
     fun playFromIndex(index: Int) {
         val list = buildQueue()
         if (list.isEmpty()) return
+        // 没有正在播放的内容（或处于暂停）时，底部没有迷你播放条，点了播放就直接打开播放详情页；
+        // 正在播放时只切歌、不打断当前页面。
+        val idle = PlayerManager.uiState.value.let { it.currentTrack == null || !it.isPlaying }
         PlayerManager.playQueue(context, list, index.coerceIn(0, list.lastIndex), settings.audioQuality)
+        if (idle) navController.navigate(Routes.PLAYER)
     }
 
     val currentChildren: List<Track> = if (currentPath.isEmpty()) rawTracks else (currentPath.last().children ?: emptyList())

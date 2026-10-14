@@ -211,6 +211,18 @@ class SettingsStore(context: Context) {
         set(value) {
             prefs.edit().putLong("lastMirrorCheckAt", value).apply()
         }
+
+    /**
+     * 用户点了「不再提示」的那个版本号。
+     *
+     * 语义是**只忽略这一个版本**：判断用的是"最新版本 != 已忽略版本"，
+     * 所以忽略 1.3.2 之后出了 1.3.3 仍会提示；更新到 1.3.2 之后自然也不再提示。
+     */
+    var ignoredUpdateVersion: String
+        get() = prefs.getString("ignoredUpdateVersion", "") ?: ""
+        set(value) {
+            prefs.edit().putString("ignoredUpdateVersion", value).apply()
+        }
 }
 
 data class SettingsState(
