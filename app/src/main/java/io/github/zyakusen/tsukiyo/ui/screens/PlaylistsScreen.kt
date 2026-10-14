@@ -49,6 +49,7 @@ import androidx.navigation.NavHostController
 import io.github.zyakusen.tsukiyo.data.model.Playlist
 import io.github.zyakusen.tsukiyo.data.model.Work
 import io.github.zyakusen.tsukiyo.ui.LocalContainer
+import io.github.zyakusen.tsukiyo.ui.components.CenteredLoading
 import io.github.zyakusen.tsukiyo.ui.components.CoverImage
 import io.github.zyakusen.tsukiyo.ui.components.EmptyState
 import io.github.zyakusen.tsukiyo.ui.components.PagedGrid
@@ -212,7 +213,8 @@ fun PlaylistsScreen(navController: NavHostController) {
         )
         when {
             !auth.isRealUser -> EmptyState("请先登录以查看")
-            loading -> {}
+            // 正在加载时页面正中显示加载圈（原来是空白）
+            loading -> CenteredLoading()
             playlists.isEmpty() -> EmptyState("暂无播放列表")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(playlists, key = { it.id ?: "" }) { pl ->

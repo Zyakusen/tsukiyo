@@ -3,7 +3,10 @@ package io.github.zyakusen.tsukiyo.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,7 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +48,7 @@ import java.io.File
  * @param allowIgnore 启动时提示才给「不再提示」（设置页手动检查不给，用户主动点的就该看到）
  * @param onIgnore 记下"忽略这个版本"
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UpdateDialog(
     info: UpdateInfo,
@@ -95,51 +103,57 @@ fun UpdateDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = !updating,
-                onClick = {
-                    when {
-                        downloadedApk != null -> installOrAsk()
-
-                        // 兜底：Release 里没有 APK 资产时仍然跳发行页
-                        info.apkUrl.isBlank() -> {
-                            onDismiss()
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl)))
-                            }
-                        }
-
-                        else -> scope.launch {
-                            updating = true
-                            progress = 0f
-                            val f = AppUpdater.download(context, info.apkUrl, info.version) { progress = it }
-                            updating = false
-                            if (f == null) {
-                                Toast.makeText(context, "下载失败，请稍后重试", Toast.LENGTH_SHORT).show()
-                            } else {
-                                downloadedApk = f
-                                installOrAsk()
-                            }
-                        }
-                    }
-                }
-            ) { Text(if (downloadedApk != null) "安装" else "下载并安装") }
-        },
-        dismissButton = {
-            Row {
+            // 四个按钮（下载并安装 / 浏览器打开 / 不再提示 / 稍后）在窄弹窗里放不下一行，
+            // 用 FlowRow 自动折到第二行；以前塞在 AlertDialog 的 confirm+dismiss 两个槽里会被挤到内容上方
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                // 顺序（左→右）：🌐 / 不再提示（仅启动时） / 稍后 / 立即更新
                 if (info.htmlUrl.isNotBlank()) {
-                    TextButton(enabled = !updating, onClick = {
+                    IconButton(enabled = !updating, onClick = {
                         onDismiss()
                         runCatching {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl)))
                         }
-                    }) { Text("浏览器打开") }
+                    }) { Icon(Icons.Filled.Public, "用浏览器打开发行页") }
                 }
                 if (allowIgnore) {
                     TextButton(enabled = !updating, onClick = onIgnore) { Text("不再提示") }
                 }
                 TextButton(enabled = !updating, onClick = onDismiss) { Text("稍后") }
+                TextButton(
+                    enabled = !updating,
+                    onClick = {
+                        when {
+                            downloadedApk != null -> installOrAsk()
+
+                            // 兜底：Release 里没有 APK 资产时仍然跳发行页
+                            info.apkUrl.isBlank() -> {
+                                onDismiss()
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl)))
+                                }
+                            }
+
+                            else -> scope.launch {
+                                updating = true
+                                progress = 0f
+                                val f = AppUpdater.download(context, info.apkUrl, info.version) { progress = it }
+                                updating = false
+                                if (f == null) {
+                                    Toast.makeText(context, "下载失败，请稍后重试", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    downloadedApk = f
+                                    installOrAsk()
+                                }
+                            }
+                        }
+                    }
+                ) { Text(if (downloadedApk != null) "安装" else "立即更新") }
             }
-        }
+        },
+        dismissButton = {}
     )
 }

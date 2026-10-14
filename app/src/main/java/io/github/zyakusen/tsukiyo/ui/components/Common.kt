@@ -340,6 +340,14 @@ fun LoadingIndicator(modifier: Modifier = Modifier) {
     }
 }
 
+/** 整页加载中：在页面**正中**显示加载圈（列表为空且正在刷新时用）。 */
+@Composable
+fun CenteredLoading(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+    }
+}
+
 /** 通用分页网格 */
 @Composable
 fun <T> PagedGrid(
@@ -352,6 +360,12 @@ fun <T> PagedGrid(
 ) {
     val gridState: LazyGridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
+
+    // 首次加载（列表还空着）→ 整页居中的加载圈；以前这里是空白，用户不知道在加载
+    if (state.items.isEmpty() && (state.refreshing || state.loading)) {
+        CenteredLoading(modifier)
+        return
+    }
 
     val shouldLoadMore by remember {
         derivedStateOf {

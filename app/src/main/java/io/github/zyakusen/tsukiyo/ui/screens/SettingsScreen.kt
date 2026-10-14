@@ -21,8 +21,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +55,9 @@ import io.github.zyakusen.tsukiyo.util.compareVersions
 import io.github.zyakusen.tsukiyo.util.currentVersionName
 import io.github.zyakusen.tsukiyo.util.fetchLatestRelease
 import kotlinx.coroutines.launch
+
+/** 项目主页（「关于 → 打开项目」用）。 */
+private const val PROJECT_URL = "https://github.com/Zyakusen/tsukiyo"
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
@@ -114,7 +121,7 @@ fun SettingsScreen(navController: NavHostController) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
             )
-            Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (auth.isRealUser) {
             Row(
@@ -122,7 +129,7 @@ fun SettingsScreen(navController: NavHostController) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("修改密码", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -155,7 +162,7 @@ fun SettingsScreen(navController: NavHostController) {
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f)
                 )
-                Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -318,7 +325,7 @@ fun SettingsScreen(navController: NavHostController) {
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
             )
-            Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         SectionTitle("API 镜像")
@@ -364,11 +371,27 @@ fun SettingsScreen(navController: NavHostController) {
             if (checkingUpdate) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
-                Text(">", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
         SectionTitle("关于")
+        // 打开项目仓库（与下面几栏一样，最右侧用"打开外部页面"图标）
+        Row(
+            Modifier.fillMaxWidth().clickable {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL)))
+                }
+            }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("打开项目", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Icon(
+                Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = "在浏览器中打开",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
             "Tsukiyo（月夜）v$currentVersion\n数据来源：asmr.one\n仅供个人学习交流使用。",
             style = MaterialTheme.typography.bodySmall,

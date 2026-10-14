@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -93,6 +94,8 @@ fun MarkdownText(
 
                 MdBlock.Rule -> HorizontalDivider()
 
+                is MdBlock.Table -> TableBlock(block, baseStyle, codeBg, linkColor)
+
                 is MdBlock.Paragraph -> Text(inline(block.text, codeBg, linkColor), style = baseStyle)
             }
         }
@@ -106,8 +109,63 @@ internal sealed interface MdBlock {
     data class Ordered(val number: String, val text: String) : MdBlock
     data class Quote(val text: String) : MdBlock
     data object Rule : MdBlock
+    data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock
     data class Paragraph(val text: String) : MdBlock
 }
+
+/**
+ * 表格：按各列内容长度分配宽度（长列占比大，但不让某一列吃掉全部），单元格里的行内语法照样渲染。
+ * 窄屏上文字自动换行，不会溢出。
+ */
+@Composable
+private fun TableBlock(
+    table: MdBlock.Table,
+    baseStyle: TextStyle,
+    codeBg: Color,
+    linkColor: Color
+) {
+    val cols = table.header.size.coerceAtLeast(1)
+    val weights = (0 until cols).map { i ->
+        val maxLen = (listOf(table.header.getOrElse(i) { "" }) + table.rows.map { it.getOrElse(i) { "" } })
+            .maxOfOrNull { it.length } ?: 1
+        maxLen.coerceIn(3, 16).toFloat()
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            table.header.forEachIndexed { i, cell ->
+                Text(
+                    inline(cell, codeBg, linkColor),
+                    style = baseStyle,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(weights.getOrElse(i) { 1f }).padding(end = 6.dp)
+                )
+            }
+        }
+        HorizontalDivider()
+        table.rows.forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                (0 until cols).forEach { i ->
+                    Text(
+                        inline(row.getOrElse(i) { "" }, codeBg, linkColor),
+                        style = baseStyle,
+                        modifier = Modifier.weight(weights.getOrElse(i) { 1f }).padding(end = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun isTableRow(line: String) = line.length > 1 && line.startsWith("|")
+
+/** `| --- | :--: |` 这种分隔行。 */
+private fun isTableSeparator(line: String) =
+    isTableRow(line) && line.contains('-') &&
+        line.replace("|", "").replace(" ", "").all { it == '-' || it == ':' }
+
+/** 拆单元格：去掉首尾竖线后按 `|` 切分。 */
+private fun tableCells(line: String): List<String> =
+    line.trim().trim('|').split('|').map { it.trim() }
 
 private val ORDERED = Regex("^(\\d{1,3})\\.\\s+(.*)$")
 private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
@@ -127,41 +185,66 @@ internal fun parseMarkdown(src: String): List<MdBlock> {
         }
     }
 
-    src.replace("\r\n", "\n").replace('\r', '\n').split('\n').forEach { raw ->
-        val line = raw.trim()
+    val lines = src.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i].trim()
         when {
-            line.isEmpty() -> flush()
+            line.isEmpty() -> {
+                flush()
+                i++
+            }
+
+            // 表格：连续若干行以 | 开头，第二行是 | --- | 分隔行
+            isTableRow(line) -> {
+                flush()
+                val block = mutableListOf<String>()
+                while (i < lines.size && isTableRow(lines[i].trim())) {
+                    block += lines[i].trim()
+                    i++
+                }
+                val header = tableCells(block.first())
+                val bodyStart = if (block.size > 1 && isTableSeparator(block[1])) 2 else 1
+                val rows = block.drop(bodyStart).map { tableCells(it) }
+                out += MdBlock.Table(header, rows)
+            }
 
             HEADING.matches(line) -> {
                 flush()
                 val m = HEADING.find(line)!!
                 out += MdBlock.Heading(m.groupValues[1].length, m.groupValues[2].trim())
+                i++
             }
 
             line == "---" || line == "***" || line == "___" -> {
                 flush()
                 out += MdBlock.Rule
+                i++
             }
 
             line.startsWith("- ") || line.startsWith("* ") || line.startsWith("+ ") -> {
                 flush()
                 out += MdBlock.Bullet(line.substring(2).trim())
+                i++
             }
 
             ORDERED.matches(line) -> {
                 flush()
                 val m = ORDERED.find(line)!!
                 out += MdBlock.Ordered(m.groupValues[1], m.groupValues[2].trim())
+                i++
             }
 
             line.startsWith("> ") || line == ">" -> {
                 flush()
                 out += MdBlock.Quote(line.removePrefix(">").trim())
+                i++
             }
 
             else -> {
                 if (paragraph.isNotEmpty()) paragraph.append(' ')
                 paragraph.append(line)
+                i++
             }
         }
     }
