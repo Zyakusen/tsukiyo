@@ -153,33 +153,27 @@ private fun HistoryCard(
             overflow = TextOverflow.Ellipsis,
             minLines = 2
         )
-        if (item.circleName.isNotBlank() || item.vas.isNotBlank()) {
+        // 与收藏页一致：社团一行、声优一行（历史页不显示评分与下载数）
+        if (item.circleName.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (item.circleName.isNotBlank()) {
-                    Text(
-                        item.circleName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                }
-                // 历史页与收藏页一样：不显示评分与下载数，但显示声优
-                //（老记录 vas 为空，重新访问该作品后才会补上）
-                if (item.vas.isNotBlank()) {
-                    if (item.circleName.isNotBlank()) Spacer(Modifier.width(6.dp))
-                    Text(
-                        item.vas,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            Text(
+                item.circleName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        // 老记录 vas 为空，重新访问该作品后才会补上
+        if (item.vas.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                item.vas,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +68,17 @@ import java.util.Locale
 
 /** 多声优的分隔符（卡片上放不下时会从尾部省略，与社团同一套省略方式）。 */
 const val VA_SEPARATOR = " / "
+
+/**
+ * 卡片信息配色（四个字段各一色，深浅主题都自适应）：
+ *  * **社团** = 主题 primary（玫红/粉）——"出品方"最该被看到；
+ *  * **声优** = 主题 secondary（紫/薰衣草）——与社团同权重但不同色系，区分"团体 vs 个人"；
+ *  * **评分** = 琥珀金 —— 与"星级/评分"的直觉一致，暖色最能突出数字；按主题亮度自适应；
+ *  * **下载数** = onSurfaceVariant（灰）—— 次要信息，不与前三者抢视线。
+ */
+@Composable
+fun ratingColor(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFFFFC46B) else Color(0xFFB26A00)
 
 @Composable
 fun CoverImage(
@@ -210,7 +222,8 @@ fun WorkCard(
             Text(
                 text = work.circleName ?: "",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // 社团：主题强调色
+                color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -224,7 +237,8 @@ fun WorkCard(
                 Text(
                     text = ratingText,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 评分：琥珀金
+                    color = ratingColor(),
                     maxLines = 1
                 )
             }
@@ -237,7 +251,8 @@ fun WorkCard(
                     Text(
                         text = vaText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // 声优：主题次色
+                        color = MaterialTheme.colorScheme.secondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -251,6 +266,7 @@ fun WorkCard(
                     Text(
                         text = "DL ${formatCount(work.dlCount)}",
                         style = MaterialTheme.typography.labelSmall,
+                        // 下载数：次要灰
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )

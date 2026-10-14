@@ -8,8 +8,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clipToBounds
@@ -145,9 +147,20 @@ fun NavHostController.navigateToSearch() {
     }
 }
 
+/**
+ * 给每个页面铺一层**不透明**的主题底色。
+ *
+ * 为什么需要：转场期间新旧两个页面会同时绘制，如果新页面自身不画底色，
+ * 右滑进来时就只有文字和图片浮在上一页上面滑（上一页的内容透出来），
+ * 看起来像"底色消失了"。播放页从下往上覆盖时同理。
+ */
 @Composable
-fun AppNavHost(navController: NavHostController = rememberNavController()) {
-    val container = LocalContainer.current
+private fun OpaqueScreen(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
+}
+
+@Composable
+fun AppNavHost(navController: NavHostController = rememberNavController()) {    val container = LocalContainer.current
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route
@@ -240,49 +253,53 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                     popEnterTransition = { EnterTransition.None },
                     popExitTransition = { ExitTransition.None }
                 ) { entry ->
-                    when (entry.destination.route) {
-                        Routes.BROWSE -> BrowseScreen(navController)
-                        Routes.SEARCH -> SearchScreen(navController)
-                        Routes.PLAYLISTS -> PlaylistsScreen(navController)
-                        Routes.FAVORITES -> FavoritesScreen(navController)
-                        Routes.DOWNLOADS -> DownloadsScreen(navController)
+                    OpaqueScreen {
+                        when (entry.destination.route) {
+                            Routes.BROWSE -> BrowseScreen(navController)
+                            Routes.SEARCH -> SearchScreen(navController)
+                            Routes.PLAYLISTS -> PlaylistsScreen(navController)
+                            Routes.FAVORITES -> FavoritesScreen(navController)
+                            Routes.DOWNLOADS -> DownloadsScreen(navController)
+                        }
                     }
                 }
             }
 
-            composable(Routes.TAG_FAVORITES) { TagFavoritesScreen(navController) }
+            composable(Routes.TAG_FAVORITES) { OpaqueScreen { TagFavoritesScreen(navController) } }
             // 历史页不是底部 tab，从首页右上角进入 → 走默认的"从右滑入"
-            composable(Routes.HISTORY) { HistoryScreen(navController) }
+            composable(Routes.HISTORY) { OpaqueScreen { HistoryScreen(navController) } }
 
             composable(
                 Routes.WORK,
                 arguments = listOf(navArgument("workId") { type = NavType.LongType })
             ) { entry ->
-                WorkDetailScreen(workId = entry.arguments?.getLong("workId") ?: 0L, navController = navController)
+                OpaqueScreen {
+                    WorkDetailScreen(workId = entry.arguments?.getLong("workId") ?: 0L, navController = navController)
+                }
             }
             composable(
                 Routes.TAG,
                 arguments = listOf(navArgument("tagId") { type = NavType.LongType })
             ) { entry ->
-                TagWorksScreen(tagId = entry.arguments?.getLong("tagId") ?: 0L, navController = navController)
+                OpaqueScreen { TagWorksScreen(tagId = entry.arguments?.getLong("tagId") ?: 0L, navController = navController) }
             }
             composable(
                 Routes.CIRCLE,
                 arguments = listOf(navArgument("circleId") { type = NavType.LongType })
             ) { entry ->
-                CircleWorksScreen(circleId = entry.arguments?.getLong("circleId") ?: 0L, navController = navController)
+                OpaqueScreen { CircleWorksScreen(circleId = entry.arguments?.getLong("circleId") ?: 0L, navController = navController) }
             }
             composable(
                 Routes.VA,
                 arguments = listOf(navArgument("vaId") { type = NavType.StringType })
             ) { entry ->
-                VaWorksScreen(vaId = entry.arguments?.getString("vaId") ?: "", navController = navController)
+                OpaqueScreen { VaWorksScreen(vaId = entry.arguments?.getString("vaId") ?: "", navController = navController) }
             }
             composable(
                 Routes.PLAYLIST,
                 arguments = listOf(navArgument("playlistId") { type = NavType.StringType })
             ) { entry ->
-                PlaylistWorksScreen(playlistId = entry.arguments?.getString("playlistId") ?: "", navController = navController)
+                OpaqueScreen { PlaylistWorksScreen(playlistId = entry.arguments?.getString("playlistId") ?: "", navController = navController) }
             }
 
             composable(
@@ -293,9 +310,9 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 // 返回时背景直接露出，不做淡入
                 popEnterTransition = { EnterTransition.None },
                 popExitTransition = { slideOutVertically(animationSpec = tween(280), targetOffsetY = { it }) }
-            ) { PlayerScreen(navController) }
-            composable(Routes.LOGIN) { LoginScreen(navController) }
-            composable(Routes.SETTINGS) { SettingsScreen(navController) }
+            ) { OpaqueScreen { PlayerScreen(navController) } }
+            composable(Routes.LOGIN) { OpaqueScreen { LoginScreen(navController) } }
+            composable(Routes.SETTINGS) { OpaqueScreen { SettingsScreen(navController) } }
         }
     }
 
